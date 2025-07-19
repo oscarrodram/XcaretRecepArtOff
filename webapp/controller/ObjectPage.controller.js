@@ -6,7 +6,7 @@ sap.ui.define([
     "sap/m/Token",
     "sap/m/MessageBox",
     "sap/ui/core/BusyIndicator",
-    "sap/base/i18n/Localization"
+    "sap/base/i18n/Localization",
 ], (Controller, JSONModel, MessageToast, Fragment, Token, MessageBox, BusyIndicator, Localization) => {
     "use strict";
     let inputsFields = [];
@@ -124,8 +124,8 @@ sap.ui.define([
             var sVn = this.getView().byId("titleName");
             sVn.setText(sNameComplete);
         },
-
-        _onObjectMatched: function (oEvent) {
+        /*
+        _onObjectMatched: async function (oEvent) {
             this.bSignAuth = false; //sign
             aUpdateRequerments = [];
             sTotalHeader = 0.00;
@@ -143,6 +143,29 @@ sap.ui.define([
 
             this.sModeUpdate = this.getModeUpdate(sObjectId);
             this.checkSignConfiguration(); //26.06.2025
+            // --- MODO OFFLINE ---
+            if (!window.navigator.onLine) {
+                // Leer el detalle de IndexDB (ScheduleLineDetail)
+                if (window.indexedDB) {
+                    const indexedDBService = sap.ui.require("com/xcaret/recepcionarticulos/model/indexedDBService");
+                    let detail = await indexedDBService.getById("ScheduleLineDetail", sObjectId);
+
+                    if (detail) {
+                        // Actualiza el modelo con el detalle
+                        this.getView().getModel("serviceModel").setProperty("/ScheduleLine", detail);
+                        // Actualiza totales
+                        this.onAddTotal(detail.items || []);
+                    } else {
+                        // Si no hay datos, muestra mensaje
+                        sap.m.MessageToast.show("No hay datos offline para este documento.");
+                        this.getView().getModel("serviceModel").setProperty("/ScheduleLine", {});
+                        this.onAddTotal([]);
+                    }
+                }
+                BusyIndicator.hide();
+                return; // Termina si estás offline
+            }
+
             switch (smodeId) {
                 case "r"://Read
                     //this.byId("switchLOEKZ").setEnabled(false);
@@ -211,7 +234,181 @@ sap.ui.define([
                     break;
             }
         },
+        */
+        // Offline
+        _onObjectMatched: async function (oEvent) {
+            this.bSignAuth = false; //sign
+            aUpdateRequerments = [];
+            sTotalHeader = 0.00;
+            this._scrollToHeader();
 
+            var oTable = this.getView().byId("ItemsTable");
+            oTable.removeSelections(true);
+
+            sObjectId = oEvent.getParameter("arguments").objectId;
+            smodeId = oEvent.getParameter("arguments").mode;
+
+            var oMultiInputProy = this.getView().byId("IdPSPNR");
+            oMultiInputProy.removeAllTokens();
+            sValidateOnBack = false;
+
+            // --- MODO OFFLINE ---
+            if (!window.navigator.onLine) {
+                sap.ui.require(["com/xcaret/recepcionarticulos/model/indexedDBService"], async function (indexedDBService) {
+                    let detail = await indexedDBService.getById("ScheduleLineDetail", sObjectId);
+
+                    if (detail) {
+                        if (detail.items && !detail.Items) {
+                            // Enriquecer los items recuperados de IndexedDB:
+                            detail.Items = this.enrichScheduleLineItems(detail.items); // Aquí se transforma cada posición
+                        } else if (detail.Items) {
+                            detail.Items = this.enrichScheduleLineItems(detail.Items);
+                        }
+                        this.getView().getModel("serviceModel").setProperty("/ScheduleLine", detail);
+                        this.onAddTotal(detail.Items || []);
+                        this.getView().getModel("serviceModel").refresh(true);
+                        console.log(this.getView().getModel("serviceModel"))
+                    } else {
+                        sap.m.MessageToast.show("No hay datos offline para este documento.");
+                        this.getView().getModel("serviceModel").setProperty("/ScheduleLine", {});
+                        this.onAddTotal([]);
+                        this.getView().getModel("serviceModel").refresh(true);
+                    }
+                    BusyIndicator.hide();
+                }.bind(this));
+                return;
+            }
+
+            // --- MODO ONLINE ---
+            this.sModeUpdate = this.getModeUpdate(sObjectId);
+            this.checkSignConfiguration(); //26.06.2025
+            console.log(smodeId)
+            switch (smodeId) {
+                case "r"://Read
+                    this._clearMultiInputs();
+                    this._cleanViewFields();
+                    this.getView().byId("idBtnEdit").setVisible(true);
+                    this.byId("IdEINDTDatePicker2").setValue(currentDate.toISOString().split("T")[0]);
+                    this.byId("idBttonReference").setEnabled(false);
+                    this.onEditFields(false, smodeId);
+                    oMultiInputProy.setEnabled(false);
+                    aIdEBELN = [];
+                    aIdEBELN.push(sObjectId);
+                    this.multiQuery();
+                    this._onQuery("ProgAlmacen");
+                    this._setEnabledEditPos(false);
+                    this.enableFieldsBySign(); //sign
+                    BusyIndicator.hide();
+                    break;
+                case "c"://Copy
+                    this.onGetDetailData(sObjectId);
+                    this.onEditFields(true, smodeId);
+                    this.byId("IdERNAMInput").setValue(sUserName);
+                    this.onAddTotal([]);
+                    BusyIndicator.hide();
+                    break;
+                case "a"://Add
+                    this._clearMultiInputs();
+                    this._cleanViewFields();
+                    this.getView().byId("idBtnEdit").setVisible(false);
+                    this.byId("switchXdifica").setEnabled(false);
+                    this.byId("switchXdifica").setState(false);
+                    this.byId("idBttonReference").setEnabled(false);
+                    oMultiInputProy.setEnabled(true);
+                    let oModelZ = new sap.ui.model.json.JSONModel();
+                    this.getView().setModel(oModelZ, "serviceModel");
+                    this.multiQuery();
+                    this.onEditFields(true, smodeId);
+                    this.byId("IdEINDTDatePicker").setValue(currentDate.toISOString().split("T")[0]);
+                    this.onAddTotal([]);
+                    var oModelRol = this.getView().getModel("serviceModel");
+                    const aCurrentRole = oModelRol.getProperty("/generalRol")
+                    if (aCurrentRole) {
+                        this.validateRol(aCurrentRole);
+                    }
+                    this._setViewProperties();
+                    BusyIndicator.hide();
+                    break;
+                default:
+                    break;
+            }
+            console.log(this.getView().getModel("serviceModel"))
+        },
+
+        /**
+        * Enriquecer los items del detalle recuperado de IndexDB con los campos esperados por la vista
+        * @param {Array} itemsOriginal - arreglo de posiciones crudas de IndexedDB
+        * @returns {Array} - arreglo enriquecido
+        */
+        enrichScheduleLineItems: function (itemsOriginal) {
+            return itemsOriginal.map(item => {
+                return {
+                    EBELP: item.EBELP || "",
+                    ID_CON: item.ID_CON || "",
+                    CONPO: item.CONPO || "",
+                    IMAG: item.IMAGE || "N/A",
+                    IMAG_ENAB: item.IMAGE ? true : false,
+                    IMAGE_SRC: item.MATNR ? (host + "/ImageMaterial/" + item.MATNR) : "",
+                    MAT_MATNR: item.MATNR || "",
+                    MAT_NAME: item.MAT_NAME || item.MAKTX1 || item.MAT_NAME || "",
+                    LINENAME: item.MATNR && item.MAT_NAME ? item.MAT_NAME : (item.MAT_NAME || item.MATNR || ""),
+                    MENGE: item.MENGE || "",
+                    QTY_AVA: item.CONTR_AVAIL || item.EBAN_AVAIL || "",
+                    QTY_DELIV: item.WEMNG || "",
+                    QTY_DELIV_COPY: item.WEMNG || "",
+                    COMMENT: "",
+                    MENGE_C: item.MENGE_C || "",
+                    MEINS: item.MEINS || item.MAT_MEINS || "",
+                    RECEP_XDIFICA: (item.EMXDI === "X") ? true : false,
+                    EINDT: item.EINDT || "",
+                    CAT_ID: item.CAT_ID || "",
+                    CAT_DESC: item.CAT_DESC || "",
+                    CATEGORY: item.CAT_DESC || "",
+                    FAM_ID: item.FAM_ID || "",
+                    FAM_DESC: item.FAM_DESC || "",
+                    FAMILY: item.FAM_DESC || "",
+                    BRA_ID: item.BRA_ID || "",
+                    BRA_DESC: item.BRA_DESC || "",
+                    BRAND: item.BRA_DESC || "",
+                    MOD_ID: item.MOD_ID || "",
+                    MOD_DESC: item.MOD_DESC || "",
+                    MODEL: item.MOD_DESC || "",
+                    DIMENSIONS: item.MAT_DIMENS || "",
+                    STANDARD_IND: (item.MAT_IND_STAN === "X") ? true : false,
+                    IND_ACT_FIJO: (item.MAT_IND_ASSET === "X") ? true : false,
+                    HERITAGE: (item.MAT_PATR === "X") ? true : false,
+                    SPECIALS: false,
+                    FFE: (item.MAT_FFE === "X") ? true : false,
+                    DIV_ID: item.DIV_ID || "",
+                    DIV_DESC: item.DIV_DESC || "",
+                    DIVISION: item.DIV_DESC || "",
+                    AREA_ID: item.AREA_ID || "",
+                    AREA_DESC: item.AREA_DESC || "",
+                    AREA: item.AREA_DESC || "",
+                    LOCATION: item.EBAN_UBICA || "",
+                    SUBLOCATION: item.REQ_SUBIC || "",
+                    REQ_SUMIN: item.EBAN_SUMIN || "",
+                    REQ_SUMIN_DESC: item.REQ_SUMIN_DESC || "",
+                    SUPPLIED: item.REQ_SUMIN_DESC || "",
+                    REQ_VISTA: item.EBAN_VISTA || "",
+                    REQ_VISTA_DESC: item.REQ_VISTA_DESC || "",
+                    VIEW: item.REQ_VISTA_DESC || "",
+                    BANFN: item.BANFN || "",
+                    BNFPO: item.BNFPO || "",
+                    ERNAM: item.ERNAM || "",
+                    CREATION_NAME: item.CREATION_NAME || "",
+                    CREATION_LNAME: item.CREATION_LNAME || "",
+                    CREATION_EMAIL: item.CREATION_EMAIL || "",
+                    STATU: item.STATU || "1",
+                    STATUS: item.STATU || "1",
+                    STATUS_TEXT: this._getStatusObj(parseInt(item.STATU || "1")).STATUS_TEXT,
+                    STATUS_ICON: this._getStatusObj(parseInt(item.STATU || "1")).STATUS_ICON,
+                    STATUS_STATE: this._getStatusObj(parseInt(item.STATU || "1")).STATUS_STATE,
+                    LINE_STATUS: "E"
+                }
+            });
+        },
+        /*
         getModeUpdate: function (sDocument) {
             this._aImageSource = [];
             this._aDeleteImageSource = [];
@@ -240,7 +437,79 @@ sap.ui.define([
                 return "u"; //update
             }
         },
+        */
+        // Offline
+        getModeUpdate: async function (sDocument) {
+            this._aImageSource = [];
+            this._aDeleteImageSource = [];
+            this.sObjMBLRN = "";
+            this.aReceptMaterials = [];
 
+            // --- MODO OFFLINE ---
+            if (!window.navigator.onLine) {
+                const indexedDBService = sap.ui.require("com/xcaret/recepcionarticulos/model/indexedDBService");
+                // Busca el detalle guardado en la store ScheduleLineDetail por EBELN
+                let detail = await indexedDBService.getById("ScheduleLineDetail", sDocument);
+                if (detail && detail.MBLRN) {
+                    this.sObjMBLRN = detail.MBLRN;
+                    // Guarda materiales del detalle si existen
+                    if (detail.items) {
+                        this.aReceptMaterials = detail.items;
+                    }
+                    // Carga imágenes offline
+                    await this._loadRecepImagesOffline(this.sObjMBLRN);
+                }
+                return "u"; //update
+            }
+
+            // --- MODO ONLINE (original) ---
+            let url = `${host}/MaterialDocument?$filter=XBLNR EQ '${sDocument}'`;
+            var aResponse = this.getDataRangesSynchronously(url);
+            var oLabRecept = this.byId("labRecept");
+            var oObjRecept = this.byId("objIdenRecept");
+            oLabRecept.setVisible(false);
+            oObjRecept.setVisible(false);
+            oObjRecept.setTitle("");
+            if (aResponse.error) {
+                return "c"; //create: no existe el documento
+            } else {
+                if (aResponse.result) {
+                    if (aResponse.result.length > 0) {
+                        this.sObjMBLRN = aResponse.result[0].MBLRN;
+                        this.aReceptMaterials = await this._getReceptMaterials(this.sObjMBLRN);
+                        await this._loadRecepImages(this.sObjMBLRN);
+                        oLabRecept.setVisible(true);
+                        oObjRecept.setVisible(true);
+                        oObjRecept.setTitle(this.sObjMBLRN);
+                    }
+                }
+                return "u"; //update
+            }
+        },
+
+        _loadRecepImagesOffline: async function (sObjMBLRN) {
+            var aReturn = [];
+            const indexedDBService = sap.ui.require("com/xcaret/recepcionarticulos/model/indexedDBService");
+            // Todas las imágenes precargadas para este MBLRN
+            let allImages = await indexedDBService.getAll("Images");
+            let filteredImages = allImages.filter(img => img.MBLRN === sObjMBLRN);
+
+            filteredImages.forEach(img => {
+                aReturn.push({
+                    LINE_ID: img.LINE_ID,
+                    src: `data:${img.mimeType};base64,${img.data}`,
+                    fileEntry: null,
+                    filename: img.IMAGE_NAME,
+                    index: img.INDEX,
+                    ind: "e" // imagen ya existe
+                });
+            });
+
+            this._aImageSource = aReturn;
+            return;
+        },
+
+        /*
         _loadRecepImages: function (sObjMBLRN) {
             var aReturn = [];
             let url = `${host}/ImageMaterialReceptionItem/${sObjMBLRN}`;
@@ -264,9 +533,62 @@ sap.ui.define([
                 });
             }
         },
+        */
+        // Offline
+        _loadRecepImages: async function (sObjMBLRN) {
+            if (!window.navigator.onLine) {
+                return await this._loadRecepImagesOffline(sObjMBLRN);
+            }
+            var aReturn = [];
+            let url = `${host}/ImageMaterialReceptionItem/${sObjMBLRN}`;
+            var aResponse = this.getDataRangesSynchronously(url);
+            if (aResponse && aResponse.images && aResponse.images.length > 0) {
+                for (var i = 0; i < aResponse.images.length; i++) {
+                    this._aImageSource.push({
+                        pos: aResponse.images[i].LINE_ID,
+                        src: `data:${aResponse.images[i].mimeType};base64,${aResponse.images[i].data}`,
+                        fileEntry: null,
+                        filename: aResponse.images[i].IMAGE_NAME,
+                        index: aResponse.images[i].INDEX,
+                        ind: "e" // imagen ya existe
+                    });
+                }
+            }
+        },
 
+        /*
         _getReceptMaterials: function (sObjMBLRN) {
             var aReturn = [];
+            let url = `${host}/MaterialDocument/${sObjMBLRN}`;
+            var aResponse = this.getDataRangesSynchronously(url);
+            if (aResponse.result) {
+                if (aResponse.result.length > 0) {
+                    if (aResponse.result[0].items) {
+                        this.oReceptMaterialsHeader = aResponse.result[0];
+                        this._updateFechaConta(this.oReceptMaterialsHeader.BUDAT);
+                        aReturn = aResponse.result[0].items;
+                    }
+                }
+            }
+            return aReturn;
+        },
+        */
+        // Offline
+        _getReceptMaterials: async function (sObjMBLRN) {
+            var aReturn = [];
+            if (!window.navigator.onLine) {
+                const indexedDBService = sap.ui.require("com/xcaret/recepcionarticulos/model/indexedDBService");
+                // Busca por EBELN en ScheduleLineDetail
+                let detail = await indexedDBService.getById("ScheduleLineDetail", sObjMBLRN);
+                if (detail && detail.items) {
+                    this.oReceptMaterialsHeader = detail;
+                    this._updateFechaConta(detail.BUDAT);
+                    aReturn = detail.items;
+                }
+                return aReturn;
+            }
+
+            // --- MODO ONLINE ---
             let url = `${host}/MaterialDocument/${sObjMBLRN}`;
             var aResponse = this.getDataRangesSynchronously(url);
             if (aResponse.result) {
@@ -508,6 +830,7 @@ sap.ui.define([
                         oModel.setProperty(setModel, oItemReqEdit);
                         var aLines = oContractItems;
                         var aRefEspecialData = this._getRefEspecialData(aLines, oItemReqEdit)
+                        console.log(aRefEspecialData);
                         oModel.setProperty("/RefEspecial", aRefEspecialData);
                         this._onQuery("ContratoAllEdit");
                         break;
@@ -1987,7 +2310,7 @@ sap.ui.define([
             oModel.refresh();
             return bReturn;
         },
-
+        /*
         _postItems: async function (oEvent) {
             var that = this;
             const oModel = this.getView().getModel("serviceModel");
@@ -2056,8 +2379,136 @@ sap.ui.define([
                 this._update(oEvent);
             }
         },
+        */
+        // Offline
+        _postItems: async function (oEvent) {
+            var that = this;
+            const oModel = this.getView().getModel("serviceModel");
+            aJsonCreate = oModel.getProperty("/ScheduleLine");
 
+            // --- MANEJO OFFLINE ---
+            if (!window.navigator.onLine) {
+                sap.ui.require([
+                    "com/xcaret/recepcionarticulos/model/indexedDBService"
+                ], async function (indexedDBService) {
+                    let opType = (that.sModeUpdate === "c") ? "create" : "update";
+                    let oPayload, sMBLRN, sKey;
 
+                    if (opType === "create") {
+                        // Simula la obtención del MBLRN (programación almacén)
+                        var nsUrol = host + "/Ranges/query";
+                        var oResponse = that.getDataRangesSynchronously(nsUrol);
+                        if (oResponse) {
+                            var oResult = oResponse.find(objectype => objectype.OBJECT === "RECEPALM");
+                            if (Number(oResult['COUNT']) === 0) {
+                                idProgAlmacen = Number(oResult['FROMNUMBER']);
+                            } else {
+                                idProgAlmacen = Number(oResult['COUNT']) + 1;
+                            }
+                            if (idProgAlmacen > Number(oResult['TONUMBER'])) {
+                                MessageToast.show(oBuni18n.getResourceBundle().getText("rangeFinish"));
+                                sap.ui.core.BusyIndicator.hide();
+                                return;
+                            }
+                            sMBLRN = idProgAlmacen;
+                        }
+                        oPayload = that._getPayload(sMBLRN);
+                        sKey = "TEMP_" + Date.now(); // <-- temporal para creación
+                    } else {
+                        // Update: usa SIEMPRE el MBLRN real como clave
+                        let oViewObj = that.oReceptMaterialsHeader;
+                        oPayload = that._getPayloadUpdate(oViewObj);
+                        sMBLRN = oViewObj.MBLRN;
+                        sKey = sMBLRN; // <-- MBLRN real
+                    }
+
+                    try {
+                        // Guarda el detalle en IndexedDB (puedes guardar oPayload si prefieres)
+                        await indexedDBService.saveDetailDoc(sKey, oPayload);
+
+                        // Guarda la operación pendiente para sincronización
+                        await indexedDBService.addPendingOp({
+                            id: sKey,
+                            type: "ScheduleLineDetail",
+                            data: oPayload,
+                            timestamp: Date.now(),
+                            opType: opType,
+                            MBLRN: sMBLRN // para facilitar la sincronización
+                        });
+
+                        sap.ui.core.BusyIndicator.hide();
+                        sValidateOnBack = true;
+                        MessageBox.success("Datos guardados en modo offline. Se sincronizarán automáticamente al volver online.", {
+                            onClose: function () {
+                                that.onCancelEdit();
+                            }
+                        });
+                    } catch (err) {
+                        sap.ui.core.BusyIndicator.hide();
+                        sap.m.MessageBox.error("Error al guardar offline: " + err);
+                    }
+                });
+                return;
+            }
+
+            // --- MODO ONLINE (lógica original, sin cambios) ---
+            if (this.sModeUpdate === "c") {
+                sValidateOnBack = true;
+                var nsUrol = host + "/Ranges/query";
+                var oResponse = this.getDataRangesSynchronously(nsUrol);
+                var sMBLRN = "";
+                if (oResponse) {
+                    var oResult = oResponse.find(objectype => objectype.OBJECT === "RECEPALM");
+                    if (Number(oResult['COUNT']) === 0) {
+                        idProgAlmacen = Number(oResult['FROMNUMBER']);
+                    } else {
+                        idProgAlmacen = Number(oResult['COUNT']) + 1;
+                    }
+                    if (idProgAlmacen > Number(oResult['TONUMBER'])) {
+                        MessageToast.show(oBuni18n.getResourceBundle().getText("rangeFinish"));
+                        return;
+                    }
+
+                    sMBLRN = idProgAlmacen;
+                }
+
+                var oPayload = this._getPayload(sMBLRN);
+
+                let response = await fetch(host + `/MaterialDocument`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(oPayload)
+                });
+                let responseData = await response.json();
+                if (!response.ok) {
+                    sap.ui.core.BusyIndicator.hide();
+                    MessageBox.error(responseData.error);
+                    return responseData;
+                }
+                if (response.status === 200) {
+                    sap.ui.core.BusyIndicator.hide();
+                    var oSUrl = host + "/Ranges/update/RECEPALM";
+                    const oSData = { COUNT: idProgAlmacen };
+                    this.updateDataCountRanges(oSUrl, oSData);
+                    this.updateScheduleLineQuantity();
+                    this.onUploadPhotos(sMBLRN); //upload images
+                    this.onDeletePhotos(); //delete
+                    var smg1 = oBuni18n.getText("msUpdated");
+                    smg1 = smg1 + " " + idProgAlmacen;
+                    MessageBox.success(smg1, {
+                        onClose: function () {
+                            that.onCancelEdit();
+                        }
+                    });
+                }
+
+                return responseData;
+            } else if (smodeId === "r" || smodeId === "c") {
+                sValidateOnBack = true;
+                this._update(oEvent);
+            }
+        },
+        /*
         _update: async function (oEvent) {
             var that = this;
             var oViewObj = this.oReceptMaterialsHeader;
@@ -2101,6 +2552,83 @@ sap.ui.define([
             //    sap.ui.core.BusyIndicator.hide();
             //    return { error: error.message };
             //}
+        },
+        */
+        // Offline
+        _update: async function (oEvent) {
+            var that = this;
+            var oViewObj = this.oReceptMaterialsHeader;
+            var oPayload = this._getPayloadUpdate(oViewObj);
+            var url = `${host}/MaterialDocument/${oViewObj.MBLRN}`;
+
+            // --- MANEJO OFFLINE ---
+            if (!window.navigator.onLine) {
+                sap.ui.require([
+                    "com/xcaret/recepcionarticulos/model/indexedDBService"
+                ], async function (indexedDBService) {
+                    let sKey = oViewObj.MBLRN || "TEMP_" + Date.now();
+
+                    try {
+                        // Guarda el detalle local como respaldo
+                        await indexedDBService.saveDetailDoc(sKey, oPayload);
+
+                        // Guarda operación pendiente para sincronización (tipo update)
+                        await indexedDBService.addPendingOp({
+                            id: sKey,
+                            type: "ScheduleLineDetail",
+                            data: oPayload,
+                            timestamp: Date.now(),
+                            opType: "update"
+                        });
+
+                        sap.ui.core.BusyIndicator.hide();
+                        MessageBox.success("Actualización guardada en modo offline. Se sincronizarán automáticamente al volver online.", {
+                            onClose: function () {
+                                that.onCancelEdit();
+                            }
+                        });
+                    } catch (err) {
+                        sap.ui.core.BusyIndicator.hide();
+                        sap.m.MessageBox.error("Error al guardar actualización offline: " + err);
+                    }
+                });
+                return;
+            }
+
+            // --- MODO ONLINE (original) ---
+            let response = await fetch(url, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(oPayload)
+            });
+            let responseData = await response.json();
+            if (!response.ok) {
+                sap.ui.core.BusyIndicator.hide();
+                var sMsg = "";
+                if (responseData.mensaje) {
+                    sMsg = responseData.mensaje;
+                }
+                if (responseData.error) {
+                    sMsg = responseData.error;
+                }
+                MessageBox.error(sMsg);
+                return responseData;
+            }
+            if (response.status === 200) {
+                //upload images
+                this.updateScheduleLineQuantity();
+                this.onUploadPhotos(oViewObj.MBLRN);
+                this.onDeletePhotos(); //delete
+                sap.ui.core.BusyIndicator.hide();
+                var smg1 = oBuni18n.getText("msUpdated");
+                smg1 = smg1 + " " + oViewObj.MBLRN;
+                MessageBox.success(smg1, {
+                    onClose: function () {
+                        that.onCancelEdit();
+                    }
+                });
+            }
+            return responseData;
         },
         ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -2501,7 +3029,8 @@ sap.ui.define([
 
             return aItems;
         },
-
+        // Meétodo que se utilizaba con cordova
+        /*
         onUploadPhotos: function (sMBLRN) {
             const that = this;
 
@@ -2571,6 +3100,90 @@ sap.ui.define([
                     console.error("Error al leer archivo:", error);
                     pending--;
                 });
+            });
+        },
+        */
+        // Se adapta para fileUploader y cámara
+        onUploadPhotos: function (sMBLRN) {
+            const that = this;
+
+            if (!this._aImageSource || !this._aImageSource.length) {
+                return;
+            }
+
+            // 🔎 Filtrar solo imágenes nuevas (ind === 'n')
+            const aNewImages = this._aImageSource.filter(img => img.ind === 'n');
+            if (!aNewImages.length) {
+                return;
+            }
+
+            const formData = new FormData();
+            const metadataArray = [];
+            let pending = aNewImages.length;
+
+            aNewImages.forEach(function (imgData, index) {
+                // Si es Cordova, usa fileEntry
+                if (imgData.fileEntry) {
+                    imgData.fileEntry.file(function (realFile) {
+                        const reader = new FileReader();
+                        reader.onloadend = function () {
+                            const blob = new Blob([new Uint8Array(this.result)], { type: realFile.type });
+                            formData.append("image", blob, realFile.name);
+                            metadataArray.push({
+                                MBLRN: sMBLRN,
+                                LINE_ID: imgData.pos,
+                                INDEX: imgData.index,
+                                IMAGE_NAME: realFile.name || ("CAPTURA" + (index + 1))
+                            });
+                            pending--;
+                            if (pending === 0) {
+                                formData.append("metadata", JSON.stringify(metadataArray));
+                                that._sendPhotoFormData(formData, aNewImages);
+                            }
+                        };
+                        reader.readAsArrayBuffer(realFile);
+                    }, function (error) {
+                        console.error("Error al leer archivo:", error);
+                        pending--;
+                    });
+                    // Si es FileUploader estándar
+                } else if (imgData.file) {
+                    const reader = new FileReader();
+                    reader.onloadend = function () {
+                        const blob = new Blob([new Uint8Array(this.result)], { type: imgData.file.type });
+                        formData.append("image", blob, imgData.file.name);
+                        metadataArray.push({
+                            MBLRN: sMBLRN,
+                            LINE_ID: imgData.pos,
+                            INDEX: imgData.index,
+                            IMAGE_NAME: imgData.file.name || ("CAPTURA" + (index + 1))
+                        });
+                        pending--;
+                        if (pending === 0) {
+                            formData.append("metadata", JSON.stringify(metadataArray));
+                            that._sendPhotoFormData(formData, aNewImages);
+                        }
+                    };
+                    reader.readAsArrayBuffer(imgData.file);
+                } else if (imgData.file) { // Esta rama se ejecutará para las fotos capturadas por la cámara
+                    const reader = new FileReader();
+                    reader.onloadend = function () {
+                        const blob = new Blob([new Uint8Array(this.result)], { type: imgData.file.type });
+                        formData.append("image", blob, imgData.file.name); // Esto funcionará perfectamente
+                        metadataArray.push({
+                            MBLRN: sMBLRN,
+                            LINE_ID: imgData.pos,
+                            INDEX: imgData.index,
+                            IMAGE_NAME: imgData.file.name || ("CAPTURA" + (index + 1))
+                        });
+                        pending--;
+                        if (pending === 0) {
+                            formData.append("metadata", JSON.stringify(metadataArray));
+                            that._sendPhotoFormData(formData, aNewImages);
+                        }
+                    };
+                    reader.readAsArrayBuffer(imgData.file); // Lee el Blob/File como ArrayBuffer
+                }
             });
         },
 
@@ -3898,7 +4511,8 @@ sap.ui.define([
             });
         },
         */
-
+        // Usa cordova
+        /*
         onCapturePhoto: function (oEvent) {
             var that = this;
             var sFragmentId = this.createId("myDialog");
@@ -3939,6 +4553,106 @@ sap.ui.define([
                     correctOrientation: true
                 }
             );
+        },
+        */
+        onCapturePhoto: function () {
+            var that = this;
+            var sFragmentId = this.createId("myDialog");
+            var oDialog = sap.ui.core.Fragment.byId(sFragmentId, "myDialog");
+            var oPreview = sap.ui.core.Fragment.byId(sFragmentId, "idPhotoPreview"); // Si tienes un control de preview
+            var sTitle = oDialog.getTitle();
+            var sTitlePos = oBuni18n.getText("titlePos") + " ";
+            var sPosition = sTitle.split(sTitlePos)[1];
+            var index = this.getIndexByPos(sPosition);
+        
+            // Crea el HTML para video y canvas
+            var oHtml = new sap.ui.core.HTML({
+                content: `
+                    <div style="text-align:center;">
+                        <video id="webcamVideo" width="320" height="240" autoplay style="border:1px solid #ccc"></video>
+                        <br>
+                        <button id="captureBtn" style="margin-top:10px">Capturar foto</button>
+                        <br>
+                        <canvas id="webcamCanvas" width="320" height="240" style="display:none;margin-top:10px;border:1px solid #ccc"></canvas>
+                    </div>
+                `
+            });
+        
+            // Diálogo SAPUI5 para la cámara
+            var oCamDialog = new sap.m.Dialog({
+                title: "Capturar foto con cámara",
+                content: [oHtml],
+                endButton: new sap.m.Button({
+                    text: "Cerrar",
+                    press: function () {
+                        // Detén la cámara
+                        let video = document.getElementById("webcamVideo");
+                        if (video && video.srcObject) {
+                            video.srcObject.getTracks().forEach(t => t.stop());
+                        }
+                        oCamDialog.close();
+                        oCamDialog.destroy();
+                    }
+                }),
+                afterOpen: function () {
+                    // Solicita permiso y muestra la cámara
+                    navigator.mediaDevices.getUserMedia({ video: true })
+                        .then(function (stream) {
+                            let video = document.getElementById("webcamVideo");
+                            video.srcObject = stream;
+                        })
+                        .catch(function (err) {
+                            sap.m.MessageToast.show("No se pudo acceder a la cámara: " + err);
+                            oCamDialog.close();
+                        });
+        
+                    // Evento de captura
+                    document.getElementById("captureBtn").onclick = function () {
+                        let video = document.getElementById("webcamVideo");
+                        let canvas = document.getElementById("webcamCanvas");
+                        let ctx = canvas.getContext("2d");
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        canvas.style.display = "block";
+        
+                        // *** CAMBIO CLAVE AQUÍ: Convierte a Blob en lugar de base64 ***
+                        canvas.toBlob(function (blob) {
+                            // Crea un objeto File a partir del Blob para que coincida con la estructura de imgData.file
+                            const capturedFile = new File([blob], 'CAPTURA_' + Date.now() + '.jpeg', { type: 'image/jpeg' });
+        
+                            // 1. Agrega la imagen al arreglo auxiliar con la propiedad 'file'
+                            that._aImageSource.push({
+                                pos: sPosition,
+                                src: URL.createObjectURL(blob), // Opcional: Si aún quieres una URL para preview
+                                filename: capturedFile.name,
+                                ind: 'n',
+                                index: index,
+                                file: capturedFile // Aquí es donde guardamos el objeto File/Blob
+                            });
+        
+                            // 2. (Opcional) Mostrar preview visual si tienes un control para ello
+                            if (oPreview) {
+                                oPreview.setSrc(URL.createObjectURL(blob)); // Usa la URL del Blob para el preview
+                                oPreview.setVisible(true);
+                            }
+        
+                            sap.m.MessageToast.show("Foto capturada correctamente.");
+        
+                            // Detén la cámara para liberar recursos
+                            if (video.srcObject) {
+                                video.srcObject.getTracks().forEach(t => t.stop());
+                            }
+        
+                            // Cierra el diálogo
+                            oCamDialog.close();
+                            oCamDialog.destroy();
+        
+                        }, 'image/jpeg', 0.9); // Formato JPEG con calidad 0.9
+                    };
+                }
+            });
+        
+            this.getView().addDependent(oCamDialog);
+            oCamDialog.open();
         },
 
         getIndexByPos: function (sPosition) {
@@ -4705,6 +5419,43 @@ sap.ui.define([
                 return (oObj[0].DESCRIPTION) ? oObj[0].DESCRIPTION : "";
             } else {
                 return "";
+            }
+        },
+
+        onFileUploaderChange: function (oEvent) {
+            var files = oEvent.getParameter("files");
+            var sFragmentId = this.createId("myDialog");
+            var oDialog = sap.ui.core.Fragment.byId(sFragmentId, "myDialog");
+            var oPreview = sap.ui.core.Fragment.byId(sFragmentId, "idPhotoPreview"); // <-- preview
+            var sTitle = oDialog.getTitle();
+            var sTitlePos = oBuni18n.getText("titlePos") + " ";
+            var sPosition = sTitle.split(sTitlePos)[1];
+            var index = this.getIndexByPos(sPosition);
+
+            if (files && files.length > 0) {
+                var file = files[0];
+                var reader = new FileReader();
+                reader.onload = function (e) {
+                    var base64 = e.target.result;
+
+                    this._aImageSource.push({
+                        pos: sPosition,
+                        src: base64,
+                        file: file,  // <-- agrega el objeto File aquí
+                        filename: file.name,
+                        ind: 'n',
+                        index: index
+                    });
+
+                    // MOSTRAR PREVIEW
+                    if (oPreview) {
+                        oPreview.setSrc(base64);
+                        oPreview.setVisible(true);
+                    }
+
+                    sap.m.MessageToast.show("Imagen agregada correctamente.");
+                }.bind(this);
+                reader.readAsDataURL(file);
             }
         }
     });

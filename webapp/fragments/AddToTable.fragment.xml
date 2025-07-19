@@ -1,6 +1,7 @@
 <core:FragmentDefinition xmlns="sap.m"
     xmlns:f="sap.ui.layout.form"
-    xmlns:core="sap.ui.core">
+    xmlns:core="sap.ui.core"
+    xmlns:unified="sap.ui.unified">
     <Dialog title="{i18n>titlePos} {serviceModel>/0/EBEL}" class="sapUiContentPadding" id="myDialog" contentWidth="60rem" contentHeight="30rem">
         <content>
             <HBox justifyContent="Start">
@@ -34,14 +35,25 @@
 
                         <core:Title text="{i18n>PHOTOS}" />
 
+                        <!-- ÚNICO FileUploader para capturar/seleccionar fotos -->
                         <Label text="{i18n>PHOTO}" />
                         <Button icon="sap-icon://add-photo" enabled="{globalModelNoEditables>/enableds}" press="onCapturePhoto" type="Emphasized"></Button>
 
                         <Label text="{i18n>SELECTPHOTO}" />
-                        <Button icon="sap-icon://add-folder" enabled="{globalModelNoEditables>/enableds}" press="onSelectPhoto" type="Emphasized"></Button>
+                        <unified:FileUploader
+                        id="idFileUploader"
+                        buttonText="{i18n>SELECTPHOTO}"
+                        fileType="jpg,jpeg,png"
+                        mimeType="image/png,image/jpeg"
+                        placeholder="{i18n>SELECTPHOTO}"
+                        uploadOnChange="false"
+                        change="onFileUploaderChange"
+                        multiple="false"
+                        enabled="{globalModelNoEditables>/enableds}" />
 
+                        <!-- Preview de la imagen seleccionada/capturada -->
                         <Label text="{i18n>SEEPHOTO}" />
-                        <Button icon="sap-icon://image-viewer" enabled="true" press="onSeePhoto" type="Emphasized"></Button>
+                        <Image id="idPhotoPreview" width="120px" visible="false"/>
                         
                         <core:Title text="" />
 

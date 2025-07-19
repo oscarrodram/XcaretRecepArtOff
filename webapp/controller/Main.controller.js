@@ -7,8 +7,9 @@ sap.ui.define([
     "sap/m/Switch",
     "sap/m/MessageBox",
     "sap/ui/comp/smartvariants/PersonalizableInfo",
-    "sap/ui/core/BusyIndicator"
-], (Controller, Dialog, Label, Button, Input, Switch, MessageBox, PersonalizableInfo, BusyIndicator) => {
+    "sap/ui/core/BusyIndicator",
+    "com/xcaret/recepcionarticulos/model/indexedDBService"
+], (Controller, Dialog, Label, Button, Input, Switch, MessageBox, PersonalizableInfo, BusyIndicator, indexedDBService) => {
     "use strict";
     var vInitialDate, vFinalDate, currentDate = new Date();
     let sUserID = "DEFAULT_USER", sFName, sLName, sEmail;
@@ -57,7 +58,68 @@ sap.ui.define([
             sSelectedTab = "All";
             oEventBus.subscribe("MainChannel", "onInitialMainPage", this.onInitialMainPage, this);
             //this.onGetGeneralData();
+
+            // Detectar conexión al iniciar
+            this.bIsOnline = indexedDBService.isOnline();
+            window.addEventListener("online", this._handleOnline.bind(this));
+            window.addEventListener("offline", this._handleOffline.bind(this));
+
             BusyIndicator.hide();
+        },
+
+        // Offline
+        _handleOnline: function () {
+            this.bIsOnline = true;
+            // Aquí podrías sincronizar datos pendientes si lo deseas
+            sap.m.MessageToast.show("Conectado. Sincronizando datos...");
+            // indexedDBService.syncPendingOps(processFn);
+            this.syncPendingOps();
+        },
+
+        // Offline
+        _handleOffline: function () {
+            this.bIsOnline = false;
+            sap.m.MessageToast.show("Sin conexión. Trabajando en modo offline.");
+        },
+
+        syncPendingOps: async function () {
+            sap.ui.require(["com/xcaret/recepcionarticulos/model/indexedDBService"], async function (indexedDBService) {
+                let pendingOps = await indexedDBService.getPendingOps();
+                let successCount = 0, errorCount = 0;
+        
+                for (let op of pendingOps) {
+                    try {
+                        if (op.opType === "create" || op.opType === "update") {
+                            let url = host + `/MaterialDocument`;
+                            if (op.opType === "update" && op.id) {
+                                url += "/" + op.id;
+                            }
+                            let response = await fetch(url, {
+                                method: op.opType === "create" ? "POST" : "PUT",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify(op.data)
+                            });
+                            let responseData = await response.json();
+                            if (response.ok && responseData) {
+                                await indexedDBService.deletePendingOp(op.id);
+                                successCount++;
+                            } else {
+                                errorCount++;
+                                console.error("Error al sincronizar pendiente:", responseData);
+                            }
+                        }
+                    } catch (err) {
+                        errorCount++;
+                        console.error("Error al sincronizar pendiente:", err);
+                    }
+                }
+        
+                // Muestra un resumen al usuario
+                if (successCount || errorCount) {
+                    let msg = `Sincronización finalizada. ${successCount} exitosas, ${errorCount} con error.`;
+                    sap.m.MessageToast.show(msg);
+                }
+            });
         },
 
         onCalculateDatesBefore: function (days) {
@@ -208,7 +270,7 @@ sap.ui.define([
             sSelectedTab = oEvent.getParameter("selectedKey");
             this.onInitialMainPage();
         },
-
+        /*
         onGetGeneralData: async function (bAppend = false) {
             try {
                 let url;
@@ -296,6 +358,330 @@ sap.ui.define([
                 }
             } catch (error) {
                 console.error(error);
+            }
+        },
+        */
+        // Offline
+        
+        onGetGeneralData: async function (bAppend = false) {
+            try {
+                let oModel = this.getView().getModel("serviceModel");
+                if (indexedDBService.isOnline()) {
+                    // Modo Online: obtener del backend y guardar en IndexDB
+                    let url;
+                    let sTop = "";
+                    var bFilter = false;
+                    var sDates = "";
+
+                    if ([aIdEBELN, aIdPSPNR, aIdCONTRA, aIdUSER].every(val => val?.length === 0)) {
+                        url = `${host}/ScheduleLine`;
+                    } else {
+                        url = this.createUrl();
+                        bFilter = true;
+                    }
+
+                    if (sSelectedTab !== "All") {
+                        var sTabInd = this._getFilterTabIndicator(sSelectedTab);
+                        if (bFilter) {
+                            url = url + " AND RE_TYPE EQ '1'";
+                        } else {
+                            url = url + "?$filter=RE_TYPE EQ '1'";
+                        }
+                        url = url + "&$virtualFilter=GENERAL_STATUS EQ '" + sTabInd + "'";
+                        bFilter = true;
+                    } else {
+                        if (bFilter) {
+                            url = url + " AND RE_TYPE EQ '1'";
+                        } else {
+                            url = url + "?$filter=RE_TYPE EQ '1'";
+                            bFilter = true;
+                        }
+                    }
+
+                    if ((oTop !== "" || oTop !== undefined) && (oSkip !== "" || oSkip !== undefined)) {
+                        sTop = "$top=" + oTop + "&$skip=" + oSkip;
+                    }
+
+                    if (vInitialDate && vFinalDate) {
+                        sDates = "(CREATED_AT BETWEEN '" + vInitialDate + "' AND '" + vFinalDate + "')"
+                    }
+
+                    if (bFilter && sDates) {
+                        url = url + " AND " + sDates;
+                    } else {
+                        if (sDates) {
+                            url = url + "?$filter=" + sDates;
+                            bFilter = true;
+                        }
+                    }
+
+                    if (sTop) {
+                        if (bFilter) {
+                            url = url + "&" + sTop;
+                        } else {
+                            url = url + "?" + sTop;
+                        }
+                    }
+
+                    let response = await fetch(url, { method: "GET" });
+                    if (!response.ok) throw new Error(`${response.error}`);
+                    let responseData = await response.json();
+
+                    if (response.status === 200) {
+                        if (responseData.error === undefined) {
+                            // Asegúrate de usar el payload con id
+                            const payload = responseData.result.map(obj => ({
+                                ...obj,
+                                id: obj.EBELN   // usa la clave primaria del objeto como id
+                            }));
+
+                            // Guardar en IndexDB la data principal
+                            await indexedDBService.saveBulk("ScheduleLine", payload);
+
+                            // Precarga masiva de detalles de cada item
+                            let maxItemsToPreload = 50; // Puedes ajustar este número
+                            let itemsToPreload = responseData.result.slice(0, maxItemsToPreload);
+                            let detailsToSave = [];
+                            for (const item of itemsToPreload) {
+                                try {
+                                    let ebeln = item.EBELN;
+                                    let detailUrl = `${host}/ScheduleLine/${ebeln}`;
+                                    let detailResponse = await fetch(detailUrl, { method: "GET" });
+                                    let detailData = await detailResponse.json();
+                                    // Guarda el detalle en IndexDB
+                                    detailsToSave.push({ id: ebeln, ...detailData.response });
+                                } catch (err) {
+                                    // Si falla, continúa con el siguiente
+                                    console.warn(`No se pudo precargar el detalle para EBELN ${item.EBELN}:`, err);
+                                }
+                            }
+                            // Guardar todos los detalles en IndexDB
+                            if (detailsToSave.length > 0) {
+                                await indexedDBService.saveBulk("ScheduleLineDetail", detailsToSave);
+                            }
+                            // Fin precarga masiva
+
+                            // Actualiza la UI
+                            if (this.iTotalItems === null) {
+                                this.iTotalItems = responseData.result.length;
+                            } else {
+                                this.iTotalItems = this.iTotalItems + responseData.result.length;
+                            }
+                            const aCurrentData = oModel.getProperty("/generalData") || [];
+                            const aUpdatedData = bAppend ? aCurrentData.concat(responseData.result) : responseData.result;
+                            this.onUpdateFinishedTable(aUpdatedData.length);
+                            oModel.setProperty("/generalData", this._getFormatData(aUpdatedData));
+                            this.bIsLoading = false;
+                        } else {
+                            const aDataResult = [];
+                            this.onUpdateFinishedTable(aDataResult.length);
+                            oModel.setProperty("/generalData", aDataResult);
+                            this.iTotalItems = aDataResult.length;
+                            this.bIsLoading = false;
+                            sap.m.MessageToast.show(responseData.error);
+                        }
+                    }
+                } else {
+                    // Modo Offline: cargar desde IndexDB
+                    let localData = await indexedDBService.getAll("ScheduleLine");
+                    oModel.setProperty("/generalData", this._getFormatData(localData));
+                    this.onUpdateFinishedTable(localData.length);
+                    this.bIsLoading = false;
+                    sap.m.MessageToast.show("Datos cargados en modo offline");
+                }
+            } catch (error) {
+                console.error(error);
+            }
+        },
+        
+        /*
+        onGetGeneralData: async function (bAppend = false) {
+            try {
+                let oModel = this.getView().getModel("serviceModel");
+                // ----------- ONLINE MODE ----------
+                if (indexedDBService.isOnline()) {
+                    let url;
+                    let sTop = "";
+                    var bFilter = false;
+                    var sDates = "";
+        
+                    if ([aIdEBELN, aIdPSPNR, aIdCONTRA, aIdUSER].every(val => val?.length === 0)) {
+                        url = `${host}/ScheduleLine`;
+                    } else {
+                        url = this.createUrl();
+                        bFilter = true;
+                    }
+        
+                    if (sSelectedTab !== "All") {
+                        var sTabInd = this._getFilterTabIndicator(sSelectedTab);
+                        if (bFilter) {
+                            url = url + " AND RE_TYPE EQ '1'";
+                        } else {
+                            url = url + "?$filter=RE_TYPE EQ '1'";
+                        }
+                        url = url + "&$virtualFilter=GENERAL_STATUS EQ '" + sTabInd + "'";
+                        bFilter = true;
+                    } else {
+                        if (bFilter) {
+                            url = url + " AND RE_TYPE EQ '1'";
+                        } else {
+                            url = url + "?$filter=RE_TYPE EQ '1'";
+                            bFilter = true;
+                        }
+                    }
+        
+                    if ((oTop !== "" || oTop !== undefined) && (oSkip !== "" || oSkip !== undefined)) {
+                        sTop = "$top=" + oTop + "&$skip=" + oSkip;
+                    }
+        
+                    if (vInitialDate && vFinalDate) {
+                        sDates = "(CREATED_AT BETWEEN '" + vInitialDate + "' AND '" + vFinalDate + "')"
+                    }
+        
+                    if (bFilter && sDates) {
+                        url = url + " AND " + sDates;
+                    } else {
+                        if (sDates) {
+                            url = url + "?$filter=" + sDates;
+                            bFilter = true;
+                        }
+                    }
+        
+                    if (sTop) {
+                        if (bFilter) {
+                            url = url + "&" + sTop;
+                        } else {
+                            url = url + "?" + sTop;
+                        }
+                    }
+        
+                    let response = await fetch(url, { method: "GET" });
+                    if (!response.ok) throw new Error(`${response.error}`);
+                    let responseData = await response.json();
+        
+                    if (response.status === 200) {
+                        if (responseData.error === undefined) {
+                            // ------- GUARDAR EN INDEXDB PRINCIPAL ------
+                            const payload = responseData.result.map(obj => ({
+                                ...obj,
+                                id: obj.EBELN   // usa la clave primaria del objeto como id
+                            }));
+                            await indexedDBService.saveBulk("ScheduleLine", payload);
+        
+                            // ------- PRECARGA MASIVA DE DETALLE + IMÁGENES -------
+                            let maxItemsToPreload = 50; // Puedes ajustar este número
+                            let itemsToPreload = payload.slice(0, maxItemsToPreload);
+                            let detailsToSave = [];
+                            let imagesToSave = [];
+        
+                            for (const item of itemsToPreload) {
+                                try {
+                                    let ebeln = item.EBELN;
+                                    let detailUrl = `${host}/ScheduleLine/${ebeln}`;
+                                    let detailResponse = await fetch(detailUrl, { method: "GET" });
+                                    let detailData = await detailResponse.json();
+        
+                                    detailsToSave.push({ id: ebeln, ...detailData.response });
+        
+                                    // ---- Precarga de imágenes asociadas ----
+                                    if (detailData.response && detailData.response.MBLRN) {
+                                        let mblnr = detailData.response.MBLRN;
+                                        let imageUrl = `${host}/ImageMaterialReceptionItem/${mblnr}`;
+                                        let imageResponse = await fetch(imageUrl, { method: "GET" });
+                                        let imageData = await imageResponse.json();
+        
+                                        if (imageData.images && imageData.images.length > 0) {
+                                            for (const img of imageData.images) {
+                                                imagesToSave.push({
+                                                    id: `${mblnr}_${img.LINE_ID}_${img.INDEX}`,
+                                                    MBLRN: mblnr,
+                                                    LINE_ID: img.LINE_ID,
+                                                    INDEX: img.INDEX,
+                                                    data: img.data, // base64
+                                                    mimeType: img.mimeType,
+                                                    IMAGE_NAME: img.IMAGE_NAME
+                                                });
+                                            }
+                                        }
+                                    }
+                                } catch (err) {
+                                    console.warn(`No se pudo precargar el detalle o imágenes para EBELN ${item.EBELN}:`, err);
+                                }
+                            }
+        
+                            // Guardar los detalles en IndexDB
+                            if (detailsToSave.length > 0) {
+                                await indexedDBService.saveBulk("ScheduleLineDetail", detailsToSave);
+                            }
+                            // Guardar las imágenes en IndexDB
+                            if (imagesToSave.length > 0) {
+                                await indexedDBService.saveBulk("Images", imagesToSave);
+                            }
+        
+                            // ------- FIN PRECARGA MASIVA -----
+        
+                            // ------- ACTUALIZA LA UI -------
+                            if (this.iTotalItems === null) {
+                                this.iTotalItems = responseData.result.length;
+                            } else {
+                                this.iTotalItems = this.iTotalItems + responseData.result.length;
+                            }
+                            const aCurrentData = oModel.getProperty("/generalData") || [];
+                            const aUpdatedData = bAppend ? aCurrentData.concat(responseData.result) : responseData.result;
+                            this.onUpdateFinishedTable(aUpdatedData.length);
+                            oModel.setProperty("/generalData", this._getFormatData(aUpdatedData));
+                            this.bIsLoading = false;
+                        } else {
+                            const aDataResult = [];
+                            this.onUpdateFinishedTable(aDataResult.length);
+                            oModel.setProperty("/generalData", aDataResult);
+                            this.iTotalItems = aDataResult.length;
+                            this.bIsLoading = false;
+                            sap.m.MessageToast.show(responseData.error);
+                        }
+                    }
+                // ----------- OFFLINE MODE ----------
+                } else {
+                    let localData = await indexedDBService.getAll("ScheduleLine");
+                    oModel.setProperty("/generalData", this._getFormatData(localData));
+                    this.onUpdateFinishedTable(localData.length);
+                    this.bIsLoading = false;
+                    sap.m.MessageToast.show("Datos cargados en modo offline");
+                }
+            } catch (error) {
+                console.error(error);
+            }
+        },
+        */
+        // Offline
+        /**
+         * Precarga masiva de detalles de cada item ScheduleLine después de cargar la tabla principal
+         * Guarda cada detalle en el Store "ScheduleLineDetail" con clave id = EBELN
+         */
+        preloadScheduleLineDetails: async function (aScheduleLines, indexedDBService) {
+            // Si el volumen es alto, puedes limitar el número de detalles a precargar
+            let maxItemsToPreload = 50; // Cambia este número según tu límite
+            let itemsToPreload = aScheduleLines.slice(0, maxItemsToPreload);
+
+            // Array para guardar detalles
+            let detailsToSave = [];
+
+            for (const item of itemsToPreload) {
+                try {
+                    let ebeln = item.EBELN;
+                    let detailUrl = `${host}/ScheduleLine/${ebeln}`;
+                    let detailResponse = await fetch(detailUrl, { method: "GET" });
+                    let detailData = await detailResponse.json();
+                    // Guarda en IndexDB (la clave debe ser la misma que uses para recuperar, aquí EBELN)
+                    detailsToSave.push({ id: ebeln, ...detailData.response });
+                } catch (err) {
+                    // Si falla, continúa con el siguiente
+                    console.warn(`No se pudo precargar el detalle para EBELN ${item.EBELN}:`, err);
+                }
+            }
+
+            if (detailsToSave.length > 0) {
+                await indexedDBService.saveBulk("ScheduleLineDetail", detailsToSave);
             }
         },
 
