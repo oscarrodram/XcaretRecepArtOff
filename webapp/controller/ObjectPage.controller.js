@@ -253,6 +253,7 @@ sap.ui.define([
             sValidateOnBack = false;
 
             // --- MODO OFFLINE ---
+            /*
             if (!window.navigator.onLine) {
                 sap.ui.require(["com/xcaret/recepcionarticulos/model/indexedDBService"], async function (indexedDBService) {
                     let detail = await indexedDBService.getById("ScheduleLineDetail", sObjectId);
@@ -268,6 +269,95 @@ sap.ui.define([
                         this.onAddTotal(detail.Items || []);
                         this.getView().getModel("serviceModel").refresh(true);
                         console.log(this.getView().getModel("serviceModel"))
+                    } else {
+                        sap.m.MessageToast.show("No hay datos offline para este documento.");
+                        this.getView().getModel("serviceModel").setProperty("/ScheduleLine", {});
+                        this.onAddTotal([]);
+                        this.getView().getModel("serviceModel").refresh(true);
+                    }
+                    BusyIndicator.hide();
+                }.bind(this));
+                return;
+            }
+            */
+            // --- MODO OFFLINE ---
+            if (!window.navigator.onLine) {
+                sap.ui.require(["com/xcaret/recepcionarticulos/model/indexedDBService"], async function (indexedDBService) {
+                    let detail = await indexedDBService.getById("ScheduleLineDetail", sObjectId);
+                    console.log(detail);
+
+                    if (detail) {
+                        // Enriquecimiento y actualización del modelo principal
+                        if (detail.items && !detail.Items) {
+                            detail.Items = this.enrichScheduleLineItems(detail.items);
+                        } else if (detail.Items) {
+                            detail.Items = this.enrichScheduleLineItems(detail.Items);
+                        }
+                        this.getView().getModel("serviceModel").setProperty("/ScheduleLine", detail);
+                        this.onAddTotal(detail.Items || []);
+                        this.getView().getModel("serviceModel").refresh(true);
+
+                        // Actualiza cabecera (globalModel)
+                        var oGlobalModel = this.getView().getModel("globalModel");
+                        oGlobalModel.setProperty("/EBELN", detail.EBELN || "");
+                        oGlobalModel.setProperty("/lifnr", detail.LIFNR || "");
+                        oGlobalModel.setProperty("/lifnr_des", detail.SUP_NAME || "");
+                        oGlobalModel.setProperty("/titleProj", detail.PROJ_NAME || "");
+                        var stat = detail.GENERAL_STATUS || detail.STATUS || 1;
+                        var oStatusObj = this._getStatusObj(parseInt(stat));
+                        oGlobalModel.setProperty("/STATUS_TEXT", oStatusObj.STATUS_TEXT);
+                        oGlobalModel.setProperty("/STATUS_ICON", oStatusObj.STATUS_ICON);
+                        oGlobalModel.setProperty("/STATUS_STATE", oStatusObj.STATUS_STATE);
+                        oGlobalModel.refresh();
+
+                        // MultiInput Proyecto
+                        var oMultiInputProy = this.getView().byId("IdPSPNR");
+                        oMultiInputProy.removeAllTokens();
+                        if (detail.ID_PEP && detail.PROJ_NAME) {
+                            oMultiInputProy.addToken(new Token({
+                                key: detail.ID_PEP,
+                                text: detail.PROJ_NAME
+                            }));
+                        }
+
+                        // MultiInput Contrato
+                        var oMultiInputContrato = this.getView().byId("ID_CON");
+                        oMultiInputContrato.removeAllTokens();
+                        if (detail.items && detail.items.length > 0) {
+                            var contractItem = detail.items.find(item => item.ID_CON && item.CON_NAME);
+                            if (contractItem) {
+                                oMultiInputContrato.addToken(new Token({
+                                    key: contractItem.ID_CON,
+                                    text: contractItem.CON_NAME
+                                }));
+                            }
+                        }
+
+                        // MultiInput Responsable
+                        var oMultiInputResp = this.getView().byId("IdRESP");
+                        oMultiInputResp.removeAllTokens();
+                        if (detail.ERNAM && detail.RESP_NAME && detail.RESP_LNAME) {
+                            let completeName = detail.RESP_NAME + " " + detail.RESP_LNAME
+                            oMultiInputResp.addToken(new Token({
+                                key: detail.ERNAM,
+                                text: completeName
+                            }));
+                        }
+
+                        // DatePicker Programación (fecha de recepción)
+                        var oDatePicker = this.byId("IdEINDTDatePicker");
+                        if (oDatePicker) {
+                            var dateValue = detail.CREATED_AT || "";
+                            // Extrae solo la fecha (primeros 10 caracteres)
+                            var formattedDate = dateValue ? dateValue.substring(0, 10) : "";
+                            oDatePicker.setValue(formattedDate);
+                        }
+
+                        // DatePicker Contabilización
+                        var oDatePicker2 = this.byId("IdEINDTDatePicker2");
+                        if (oDatePicker2) {
+                            oDatePicker2.setValue(detail.BUDAT || "");
+                        }
                     } else {
                         sap.m.MessageToast.show("No hay datos offline para este documento.");
                         this.getView().getModel("serviceModel").setProperty("/ScheduleLine", {});
@@ -4564,7 +4654,7 @@ sap.ui.define([
             var sTitlePos = oBuni18n.getText("titlePos") + " ";
             var sPosition = sTitle.split(sTitlePos)[1];
             var index = this.getIndexByPos(sPosition);
-        
+
             // Crea el HTML para video y canvas
             var oHtml = new sap.ui.core.HTML({
                 content: `
@@ -4577,7 +4667,7 @@ sap.ui.define([
                     </div>
                 `
             });
-        
+
             // Diálogo SAPUI5 para la cámara
             var oCamDialog = new sap.m.Dialog({
                 title: "Capturar foto con cámara",
@@ -4605,7 +4695,7 @@ sap.ui.define([
                             sap.m.MessageToast.show("No se pudo acceder a la cámara: " + err);
                             oCamDialog.close();
                         });
-        
+
                     // Evento de captura
                     document.getElementById("captureBtn").onclick = function () {
                         let video = document.getElementById("webcamVideo");
@@ -4613,12 +4703,12 @@ sap.ui.define([
                         let ctx = canvas.getContext("2d");
                         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                         canvas.style.display = "block";
-        
+
                         // *** CAMBIO CLAVE AQUÍ: Convierte a Blob en lugar de base64 ***
                         canvas.toBlob(function (blob) {
                             // Crea un objeto File a partir del Blob para que coincida con la estructura de imgData.file
                             const capturedFile = new File([blob], 'CAPTURA_' + Date.now() + '.jpeg', { type: 'image/jpeg' });
-        
+
                             // 1. Agrega la imagen al arreglo auxiliar con la propiedad 'file'
                             that._aImageSource.push({
                                 pos: sPosition,
@@ -4628,29 +4718,29 @@ sap.ui.define([
                                 index: index,
                                 file: capturedFile // Aquí es donde guardamos el objeto File/Blob
                             });
-        
+
                             // 2. (Opcional) Mostrar preview visual si tienes un control para ello
                             if (oPreview) {
                                 oPreview.setSrc(URL.createObjectURL(blob)); // Usa la URL del Blob para el preview
                                 oPreview.setVisible(true);
                             }
-        
+
                             sap.m.MessageToast.show("Foto capturada correctamente.");
-        
+
                             // Detén la cámara para liberar recursos
                             if (video.srcObject) {
                                 video.srcObject.getTracks().forEach(t => t.stop());
                             }
-        
+
                             // Cierra el diálogo
                             oCamDialog.close();
                             oCamDialog.destroy();
-        
+
                         }, 'image/jpeg', 0.9); // Formato JPEG con calidad 0.9
                     };
                 }
             });
-        
+
             this.getView().addDependent(oCamDialog);
             oCamDialog.open();
         },
