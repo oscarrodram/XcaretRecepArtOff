@@ -4965,6 +4965,8 @@ sap.ui.define([
             );
         },
         */
+        // Ya funciona de manera online
+        /*
         onCapturePhoto: function () {
             var that = this;
             var sFragmentId = this.createId("myDialog");
@@ -5061,6 +5063,127 @@ sap.ui.define([
                 }
             });
 
+            this.getView().addDependent(oCamDialog);
+            oCamDialog.open();
+        },
+        */
+        // Offline
+        onCapturePhoto: function () {
+            var that = this;
+            var sFragmentId = this.createId("myDialog");
+            var oDialog = sap.ui.core.Fragment.byId(sFragmentId, "myDialog");
+            var oPreview = sap.ui.core.Fragment.byId(sFragmentId, "idPhotoPreview"); // Si tienes un control de preview
+            var sTitle = oDialog.getTitle();
+            var sTitlePos = oBuni18n.getText("titlePos") + " ";
+            var sPosition = sTitle.split(sTitlePos)[1];
+            var index = this.getIndexByPos(sPosition);
+        
+            // Crea el HTML para video y canvas
+            var oHtml = new sap.ui.core.HTML({
+                content: `
+                    <div style="text-align:center;">
+                        <video id="webcamVideo" width="320" height="240" autoplay style="border:1px solid #ccc"></video>
+                        <br>
+                        <button id="captureBtn" style="margin-top:10px">Capturar foto</button>
+                        <br>
+                        <canvas id="webcamCanvas" width="320" height="240" style="display:none;margin-top:10px;border:1px solid #ccc"></canvas>
+                    </div>
+                `
+            });
+        
+            // Diálogo SAPUI5 para la cámara
+            var oCamDialog = new sap.m.Dialog({
+                title: "Capturar foto con cámara",
+                content: [oHtml],
+                endButton: new sap.m.Button({
+                    text: "Cerrar",
+                    press: function () {
+                        // Detén la cámara
+                        let video = document.getElementById("webcamVideo");
+                        if (video && video.srcObject) {
+                            video.srcObject.getTracks().forEach(t => t.stop());
+                        }
+                        oCamDialog.close();
+                        oCamDialog.destroy();
+                    }
+                }),
+                afterOpen: function () {
+                    // Solicita permiso y muestra la cámara
+                    navigator.mediaDevices.getUserMedia({ video: true })
+                        .then(function (stream) {
+                            let video = document.getElementById("webcamVideo");
+                            video.srcObject = stream;
+                        })
+                        .catch(function (err) {
+                            sap.m.MessageToast.show("No se pudo acceder a la cámara: " + err);
+                            oCamDialog.close();
+                        });
+        
+                    // Evento de captura
+                    document.getElementById("captureBtn").onclick = function () {
+                        let video = document.getElementById("webcamVideo");
+                        let canvas = document.getElementById("webcamCanvas");
+                        let ctx = canvas.getContext("2d");
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        canvas.style.display = "block";
+        
+                        // Convierte a Blob
+                        canvas.toBlob(function (blob) {
+                            // Crea un objeto File para estandarizar el manejo de imágenes
+                            const capturedFile = new File([blob], 'CAPTURA_' + Date.now() + '.jpeg', { type: 'image/jpeg' });
+        
+                            // 1. Agrega la imagen al arreglo auxiliar con la propiedad 'file'
+                            that._aImageSource.push({
+                                pos: sPosition,
+                                src: URL.createObjectURL(blob),
+                                filename: capturedFile.name,
+                                ind: 'n',
+                                index: index,
+                                file: capturedFile
+                            });
+        
+                            // 2. Guardar en IndexedDB si offline
+                            if (!window.navigator.onLine) {
+                                sap.ui.require(["com/xcaret/recepcionarticulos/model/indexedDBService"], function(indexedDBService) {
+                                    let reader = new FileReader();
+                                    reader.onloadend = function() {
+                                        let base64 = reader.result.split(',')[1];
+                                        let sMBLRN = that.sObjMBLRN || "TEMP_" + Date.now();
+                                        indexedDBService.saveImage({
+                                            MBLRN: sMBLRN,
+                                            LINE_ID: sPosition,
+                                            IMAGE_NAME: capturedFile.name,
+                                            data: base64,
+                                            mimeType: capturedFile.type,
+                                            pending: true,
+                                            timestamp: Date.now()
+                                        });
+                                    };
+                                    reader.readAsDataURL(capturedFile);
+                                });
+                            }
+        
+                            // 3. Mostrar preview visual si tienes un control para ello
+                            if (oPreview) {
+                                oPreview.setSrc(URL.createObjectURL(blob));
+                                oPreview.setVisible(true);
+                            }
+        
+                            sap.m.MessageToast.show("Foto capturada correctamente.");
+        
+                            // Detén la cámara para liberar recursos
+                            if (video.srcObject) {
+                                video.srcObject.getTracks().forEach(t => t.stop());
+                            }
+        
+                            oCamDialog.close();
+                            oCamDialog.destroy();
+        
+                        }, 'image/jpeg', 0.9);
+                    };
+                }
+            });
+        
             this.getView().addDependent(oCamDialog);
             oCamDialog.open();
         },
@@ -5831,7 +5954,8 @@ sap.ui.define([
                 return "";
             }
         },
-
+        // Ya finciona de manra online
+        /*
         onFileUploaderChange: function (oEvent) {
             var files = oEvent.getParameter("files");
             var sFragmentId = this.createId("myDialog");
@@ -5863,6 +5987,60 @@ sap.ui.define([
                         oPreview.setVisible(true);
                     }
 
+                    sap.m.MessageToast.show("Imagen agregada correctamente.");
+                }.bind(this);
+                reader.readAsDataURL(file);
+            }
+        }
+        */
+        // Offline
+        onFileUploaderChange: function (oEvent) {
+            var files = oEvent.getParameter("files");
+            var sFragmentId = this.createId("myDialog");
+            var oDialog = sap.ui.core.Fragment.byId(sFragmentId, "myDialog");
+            var oPreview = sap.ui.core.Fragment.byId(sFragmentId, "idPhotoPreview"); // <-- preview
+            var sTitle = oDialog.getTitle();
+            var sTitlePos = oBuni18n.getText("titlePos") + " ";
+            var sPosition = sTitle.split(sTitlePos)[1];
+            var index = this.getIndexByPos(sPosition);
+        
+            if (files && files.length > 0) {
+                var file = files[0];
+                var reader = new FileReader();
+                reader.onload = function (e) {
+                    var base64 = e.target.result;
+        
+                    this._aImageSource.push({
+                        pos: sPosition,
+                        src: base64,
+                        file: file,
+                        filename: file.name,
+                        ind: 'n',
+                        index: index
+                    });
+        
+                    // Guardar en IndexedDB si offline
+                    if (!window.navigator.onLine) {
+                        sap.ui.require(["com/xcaret/recepcionarticulos/model/indexedDBService"], function(indexedDBService) {
+                            let sMBLRN = this.sObjMBLRN || "TEMP_" + Date.now();
+                            indexedDBService.saveImage({
+                                MBLRN: sMBLRN,
+                                LINE_ID: sPosition,
+                                IMAGE_NAME: file.name,
+                                data: base64.split(',')[1],
+                                mimeType: file.type,
+                                pending: true,
+                                timestamp: Date.now()
+                            });
+                        }.bind(this));
+                    }
+        
+                    // MOSTRAR PREVIEW
+                    if (oPreview) {
+                        oPreview.setSrc(base64);
+                        oPreview.setVisible(true);
+                    }
+        
                     sap.m.MessageToast.show("Imagen agregada correctamente.");
                 }.bind(this);
                 reader.readAsDataURL(file);

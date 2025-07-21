@@ -6,7 +6,7 @@ sap.ui.define([], function () {
 
     var STORE_NAMES = {
         scheduleLine: "ScheduleLine",
-        scheduleLineDetail: "ScheduleLineDetail", // Para los detalles de cada registro principal
+        scheduleLineDetail: "ScheduleLineDetail",
         contract: "Contract",
         user: "User",
         projects: "Projects",
@@ -151,7 +151,43 @@ sap.ui.define([], function () {
         return getById(STORE_NAMES.scheduleLineDetail, EBELN);
     }
 
-    // Exporta las funciones del servicio
+    // --- NUEVO: Funciones para soporte de imágenes offline ---
+    // Guarda una imagen en el store Images. Si no se pasa un "id", lo genera a partir de MBLRN + LINE_ID + IMAGE_NAME
+    function saveImage(img) {
+        const id = img.id || (img.MBLRN + "_" + img.LINE_ID + "_" + img.IMAGE_NAME);
+        // Asegura que el campo index se guarde siempre
+        return saveData(STORE_NAMES.images, {
+            ...img,
+            id,
+            // Guarda INDEX como número o string, preferentemente como número
+            INDEX: (typeof img.INDEX !== "undefined") ? img.INDEX : img.index
+        });
+    }
+
+    // Devuelve todas las imágenes en el store Images
+    function getAllImages() {
+        return getAll(STORE_NAMES.images);
+    }
+
+    // Devuelve solo las imágenes pendientes de sincronizar (pending: true)
+    function getPendingImages() {
+        return getAllImages().then(imgs => imgs.filter(img => img.pending));
+    }
+
+    // Marca la imagen como sincronizada (pending: false)
+    function markImageAsSynced(id) {
+        return getById(STORE_NAMES.images, id).then(function (img) {
+            if (!img) return;
+            img.pending = false;
+            return saveData(STORE_NAMES.images, img);
+        });
+    }
+
+    // Elimina una imagen por ID (opcional, útil si quieres eliminar tras sincronizar)
+    function deleteImage(id) {
+        return deleteById(STORE_NAMES.images, id);
+    }
+
     return {
         DB_NAME: DB_NAME,
         DB_VERSION: DB_VERSION,
@@ -168,7 +204,13 @@ sap.ui.define([], function () {
         getPendingOps: getPendingOps,
         deletePendingOp: deletePendingOp,
         syncPendingOps: syncPendingOps,
-        saveDetailDoc,
-        getDetailDoc
+        saveDetailDoc: saveDetailDoc,
+        getDetailDoc: getDetailDoc,
+        // NUEVAS funciones para imágenes offline:
+        saveImage: saveImage,
+        getAllImages: getAllImages,
+        getPendingImages: getPendingImages,
+        markImageAsSynced: markImageAsSynced,
+        deleteImage: deleteImage
     };
 });
