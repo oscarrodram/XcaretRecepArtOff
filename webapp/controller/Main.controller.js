@@ -81,7 +81,7 @@ sap.ui.define([
             this.bIsOnline = false;
             sap.m.MessageToast.show("Sin conexión. Trabajando en modo offline.");
         },
-
+        // Offline
         syncPendingOps: async function () {
             sap.ui.require(["com/xcaret/recepcionarticulos/model/indexedDBService"], async function (indexedDBService) {
                 let pendingOps = await indexedDBService.getPendingOps();
@@ -121,7 +121,7 @@ sap.ui.define([
                 }
             });
         },
-
+        
         onCalculateDatesBefore: function (days) {
             let vCurrentDate = currentDate.toISOString().split("T")[0];
             var oFinalDate = new Date(vCurrentDate);

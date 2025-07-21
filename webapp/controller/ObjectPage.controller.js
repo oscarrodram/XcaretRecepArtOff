@@ -65,7 +65,7 @@ sap.ui.define([
     let host = "https://experiencias-xcaret-parques-s-a-p-i-de-c-v--xc-btpdev-15aca4ac6.cfapps.us10-001.hana.ondemand.com";
 
     return Controller.extend("com.xcaret.recepcionarticulos.controller.ObjectPage", {
-        onInit() {
+        onInit: async function () {
             oBuni18n = this.getOwnerComponent().getModel("i18n").getResourceBundle();
             sCurrentLanguage = oBuni18n.getText("idioma");
             var oGlobalModel = new JSONModel({
@@ -118,6 +118,22 @@ sap.ui.define([
             // Set the serviceModel as the detailModel in the view
             const oLocalData = this.getOwnerComponent().getModel("serviceModel");
             this.getView().setModel(oLocalData, "detailModel");
+
+            // Offline
+            this._fragments = {};
+            for (const frag of FragmentMap) {
+                try {
+                    this._fragments[frag.DialogID] = await Fragment.load({
+                        id: this.createId(frag.DialogID),
+                        name: frag.DialogRout,
+                        controller: this
+                    });
+                    this.getView().addDependent(this._fragments[frag.DialogID]);
+                } catch (e) {
+                    // Si falla la carga, puedes mostrar un mensaje de error o simplemente continuar
+                    console.warn(`No se pudo cargar el fragmento ${frag.DialogID}:`, e);
+                }
+            }
         },
         onAfterRendering: function () {
             let sNameComplete = sFName + " " + sLName;
@@ -252,34 +268,6 @@ sap.ui.define([
             oMultiInputProy.removeAllTokens();
             sValidateOnBack = false;
 
-            // --- MODO OFFLINE ---
-            /*
-            if (!window.navigator.onLine) {
-                sap.ui.require(["com/xcaret/recepcionarticulos/model/indexedDBService"], async function (indexedDBService) {
-                    let detail = await indexedDBService.getById("ScheduleLineDetail", sObjectId);
-
-                    if (detail) {
-                        if (detail.items && !detail.Items) {
-                            // Enriquecer los items recuperados de IndexedDB:
-                            detail.Items = this.enrichScheduleLineItems(detail.items); // Aquí se transforma cada posición
-                        } else if (detail.Items) {
-                            detail.Items = this.enrichScheduleLineItems(detail.Items);
-                        }
-                        this.getView().getModel("serviceModel").setProperty("/ScheduleLine", detail);
-                        this.onAddTotal(detail.Items || []);
-                        this.getView().getModel("serviceModel").refresh(true);
-                        console.log(this.getView().getModel("serviceModel"))
-                    } else {
-                        sap.m.MessageToast.show("No hay datos offline para este documento.");
-                        this.getView().getModel("serviceModel").setProperty("/ScheduleLine", {});
-                        this.onAddTotal([]);
-                        this.getView().getModel("serviceModel").refresh(true);
-                    }
-                    BusyIndicator.hide();
-                }.bind(this));
-                return;
-            }
-            */
             // --- MODO OFFLINE ---
             if (!window.navigator.onLine) {
                 sap.ui.require(["com/xcaret/recepcionarticulos/model/indexedDBService"], async function (indexedDBService) {
@@ -2847,7 +2835,7 @@ sap.ui.define([
             var sVt = this.getView().byId("titleTotal");
             sVt.setText(num);
         },
-
+        /*
         _getPayloadUpdate: function (oViewObj) {
             var that = this;
             let idResp, respName;
@@ -2868,6 +2856,30 @@ sap.ui.define([
                 "SYNCRO": oViewObj.SYNCRO,
                 "ERNAM": oViewObj.ERNAM,
                 //"ERNAM2": "pendiente",
+                "XBLNR": oViewObj.XBLNR,
+                "Items": aItems
+            };
+        },
+        */
+        // Offline
+        _getPayloadUpdate: function (oViewObj) {
+            let idResp, respName;
+            const oModel = this.getView().getModel("serviceModel");
+            aJsonCreate = oModel.getProperty("/ScheduleLine");
+            var oGlobalModel = this.getView().getModel("globalModel");
+            var oMultiInputResp = this.getView().byId("IdRESP");
+            var aTokens = oMultiInputResp.getTokens();
+            aTokens.forEach(function (oToken) {
+                idResp = oToken.getKey();
+                respName = oToken.getText();
+            });
+            var aItems = this._getLinesTable(aJsonCreate, oViewObj.MBLRN);
+            return {
+                "MJAHR": oViewObj.MJAHR || this.getCurrentYear(),
+                "BLDAT": oViewObj.BLDAT || this.getCurrentDate(),
+                "BUDAT": this.getSelectedDate(),
+                "SYNCRO": oViewObj.SYNCRO || "1",
+                "ERNAM": oViewObj.ERNAM,
                 "XBLNR": oViewObj.XBLNR,
                 "Items": aItems
             };
@@ -2915,7 +2927,7 @@ sap.ui.define([
 
             return sStat;
         },
-
+        /*
         _getPayload: function (sMBLRN) {
             var that = this;
             let idResp, respName;
@@ -2944,6 +2956,33 @@ sap.ui.define([
                     "items": aItems
                 }
             ];
+        },
+        */
+        // Offline
+        _getPayload: function (sMBLRN) {
+            let idResp, respName;
+            const oModel = this.getView().getModel("serviceModel");
+            aJsonCreate = oModel.getProperty("/ScheduleLine");
+            var oGlobalModel = this.getView().getModel("globalModel");
+            var oMultiInputResp = this.getView().byId("IdRESP");
+            var aTokens = oMultiInputResp.getTokens();
+            aTokens.forEach(function (oToken) {
+                idResp = oToken.getKey();
+                respName = oToken.getText();
+            });
+
+            var aItems = this._getLinesTable(aJsonCreate, sMBLRN);
+
+            return [{
+                "MBLRN": parseInt(sMBLRN).toString(),
+                "MJAHR": this.getCurrentYear(),
+                "BLDAT": this.getCurrentDate(),
+                "BUDAT": this.getSelectedDate(), // <-- IMPORTANTE
+                "SYNCRO": "1",
+                "ERNAM": aJsonCreate.ERNAM || (aJsonCreate[0] && aJsonCreate[0].ERNAM) || "",
+                "XBLNR": oGlobalModel.getProperty("/EBELN"),
+                "Items": aItems
+            }];
         },
 
         getSelectedDate: function () {
@@ -3003,7 +3042,7 @@ sap.ui.define([
             aReturn.sort((a, b) => a.EBELP - b.EBELP);
             return aReturn;
         },
-
+        /*
         _getLineDetail: function (oLine, sMBLRN) {
             var that = this;
             var oGlobalModel = this.getView().getModel("globalModel");
@@ -3028,6 +3067,29 @@ sap.ui.define([
                 "BUDAT": this.getSelectedDate(),  //agregar campo de fecha a nivel encabezado, por default traer fecha del dia, etiqueta: Fecha de contabilizacion: editable, hasta que se contabilice
                 "ERNAM": (oLine?.ERNAM || ""),  //presentar ventana al inicar la app donde mostremos usuarios que acttualmente se tienen en el filtro de 'creado por' : quitar filtro de pantalla inical y ponerlo como boton con label 'cambiar usuario'
                 "MODIF": (oLine?.MODIF || "")   //modificado por : tomar el valor del usario activo
+            };
+        },
+        */
+        // Offline
+        _getLineDetail: function (oLine, sMBLRN) {
+            var oGlobalModel = this.getView().getModel("globalModel");
+            return {
+                "MBLRN": sMBLRN,
+                "LINE_ID": oLine?.EBELP || oLine?.LINE_ID || "",
+                "MJAHR": this.getCurrentYear(),
+                "MATNR": oLine?.MAT_MATNR || oLine?.MATNR || "",
+                "LIFNR": oGlobalModel.getProperty("/lifnr"),
+                "PROGN": oGlobalModel.getProperty("/EBELN") || sMBLRN,
+                "PROGP": oLine?.EBELP || oLine?.LINE_ID || "",
+                "ERFMG": oLine?.QTY_DELIV_COPY || oLine?.ERFMG || "",
+                "ERFME": oLine?.MEINS || oLine?.ERFME || "",
+                "WAERS": oLine?.WAERS || "",
+                "TEXT1": oLine?.COMMENT || oLine?.TEXT1 || "",
+                "SYNCRO": "1",
+                "BLDAT": this.getCurrentDate(),
+                "BUDAT": this.getSelectedDate(),
+                "ERNAM": oLine?.ERNAM || "",
+                "MODIF": oLine?.MODIF || ""
             };
         },
 
@@ -3448,7 +3510,7 @@ sap.ui.define([
             oRouter.navTo("Main", {}, true);
             history.go(-1);
         },
-
+        /*
         openValueHelpDialog: function (sFragmentName, oEvent, sDialogId) {
             Fragment.load({
                 id: this.createId(sDialogId),
@@ -3493,10 +3555,200 @@ sap.ui.define([
                 this.oMultiEditDialog.open();
             }.bind(this));
         },
+        */
+        // Offline
+        /*
+        openValueHelpDialog: function (sFragmentName, oEvent, sDialogId) {
+            // Si el fragmento ya está precargado, úsalo
+            if (this._fragments && this._fragments[sDialogId]) {
+                this.oMultiEditDialog = this._fragments[sDialogId];
+
+                // Mantén tu lógica especial para 'myDialog'
+                var sFragmentId = this.createId(sDialogId);
+                if (sDialogId === "myDialog") {
+                    switch (smodeId) {
+                        case "r"://Read
+                            break;
+                        case "c"://Copy
+                            break;
+                        case "a"://Add
+                            //oLastUserModify.setValue(sUserName);
+                            break;
+                        default:
+                            break;
+                    }
+                    if (oFlagPos === true) {
+                        this.onObtainPositions();
+                        oSearchQuotationPos = iIndex;
+                        let line = oJsonCreate.Items[iIndex];
+                        this.onSetValuePosition(line);
+                        oFlagPos = false;
+                    }
+                    if (oSearchQuotationPos === undefined && oActualQuotationPos === undefined) {
+                        oSearchQuotationPos = oActualQuotationPos = 0;
+                    }
+                }
+                this.oMultiEditDialog.setEscapeHandler(function () {
+                    this.onCloseDialog();
+                }.bind(this));
+
+                sap.ui.core.BusyIndicator.hide();
+                this.oMultiEditDialog.open();
+                return;
+            }
+
+            // Si no está precargado (fallback), usa la lógica original
+            Fragment.load({
+                id: this.createId(sDialogId),
+                name: sFragmentName,
+                controller: this
+            }).then(function (oFragment) {
+                this.oMultiEditDialog = oFragment;
+                this.getView().addDependent(this.oMultiEditDialog);
+                var sFragmentId = this.createId(sDialogId);
+                if (sDialogId === "myDialog") {
+                    switch (smodeId) {
+                        case "r"://Read
+                            break;
+                        case "c"://Copy
+                            break;
+                        case "a"://Add
+                            //oLastUserModify.setValue(sUserName);
+                            break;
+                        default:
+                            break;
+                    }
+                    if (oFlagPos === true) {
+                        this.onObtainPositions();
+                        oSearchQuotationPos = iIndex;
+                        let line = oJsonCreate.Items[iIndex];
+                        console.log(line)
+                        this.onSetValuePosition(line);
+                        oFlagPos = false;
+                    }
+                    if (oSearchQuotationPos === undefined && oActualQuotationPos === undefined) {
+                        oSearchQuotationPos = oActualQuotationPos = 0;
+                    }
+                }
+                this.oMultiEditDialog.setEscapeHandler(function () {
+                    this.onCloseDialog();
+                }.bind(this));
+
+                sap.ui.core.BusyIndicator.hide();
+                this.oMultiEditDialog.open();
+            }.bind(this));
+        },
+        */
+        
+        openValueHelpDialog: function (sFragmentName, oEvent, sDialogId) {
+            // SIEMPRE toma los datos actuales del modelo antes de abrir el fragmento
+            const oModel = this.getView().getModel("serviceModel");
+            oJsonCreate = oModel.getProperty("/ScheduleLine"); // objeto actualizado
+        
+            if (this._fragments && this._fragments[sDialogId]) {
+                this.oMultiEditDialog = this._fragments[sDialogId];
+        
+                var sFragmentId = this.createId(sDialogId);
+                if (sDialogId === "myDialog") {
+                    switch (smodeId) {
+                        case "r"://Read
+                            break;
+                        case "c"://Copy
+                            break;
+                        case "a"://Add
+                            //oLastUserModify.setValue(sUserName);
+                            break;
+                        default:
+                            break;
+                    }
+        
+                    // Actualiza el detalle con el item seleccionado
+                    if (oFlagPos === true) {
+                        this.onObtainPositions();
+                        oSearchQuotationPos = iIndex;
+                        // Usa SIEMPRE el objeto actual del modelo
+                        let line = oJsonCreate?.Items?.[iIndex];
+                        this.onSetValuePosition(line);
+                        oFlagPos = false;
+                    }
+                    if (oSearchQuotationPos === undefined && oActualQuotationPos === undefined) {
+                        oSearchQuotationPos = oActualQuotationPos = 0;
+                    }
+                }
+                this.oMultiEditDialog.setEscapeHandler(function () {
+                    this.onCloseDialog();
+                }.bind(this));
+        
+                sap.ui.core.BusyIndicator.hide();
+                this.oMultiEditDialog.open();
+                return;
+            }
+        
+            // Fallback original (solo si no se precargó el fragmento)
+            Fragment.load({
+                id: this.createId(sDialogId),
+                name: sFragmentName,
+                controller: this
+            }).then(function (oFragment) {
+                this.oMultiEditDialog = oFragment;
+                this.getView().addDependent(this.oMultiEditDialog);
+                var sFragmentId = this.createId(sDialogId);
+                if (sDialogId === "myDialog") {
+                    switch (smodeId) {
+                        case "r"://Read
+                            break;
+                        case "c"://Copy
+                            break;
+                        case "a"://Add
+                            //oLastUserModify.setValue(sUserName);
+                            break;
+                        default:
+                            break;
+                    }
+                    if (oFlagPos === true) {
+                        this.onObtainPositions();
+                        oSearchQuotationPos = iIndex;
+                        let line = oJsonCreate?.Items?.[iIndex];
+                        this.onSetValuePosition(line);
+                        oFlagPos = false;
+                    }
+                    if (oSearchQuotationPos === undefined && oActualQuotationPos === undefined) {
+                        oSearchQuotationPos = oActualQuotationPos = 0;
+                    }
+                }
+                this.oMultiEditDialog.setEscapeHandler(function () {
+                    this.onCloseDialog();
+                }.bind(this));
+        
+                sap.ui.core.BusyIndicator.hide();
+                this.oMultiEditDialog.open();
+            }.bind(this));
+        },
+        
+        /*
         onCloseDialogFragment: function (oEvent) {
             this.oMultiEditDialog.close();
             this.oMultiEditDialog.destroy();
             this.oMultiEditDialog = null;
+
+            const oModel = this.getView().getModel("serviceModel");
+            const aGeneralData = oModel.getProperty("/ScheduleLine");
+            //this.onAddTotal(aGeneralData.items);
+        },
+        */
+        // Offline
+        onCloseDialogFragment: function (oEvent) {
+            if (this.oMultiEditDialog) {
+                this.oMultiEditDialog.close();
+                // Si el fragmento fue precargado, NO lo destruyas
+                if (this._fragments && Object.values(this._fragments).includes(this.oMultiEditDialog)) {
+                    // Solo lo cierras, no lo destruyes
+                } else {
+                    // Si fue cargado dinámicamente, destrúyelo
+                    this.oMultiEditDialog.destroy();
+                }
+                this.oMultiEditDialog = null;
+            }
 
             const oModel = this.getView().getModel("serviceModel");
             const aGeneralData = oModel.getProperty("/ScheduleLine");
@@ -4082,21 +4334,71 @@ sap.ui.define([
                 that._showDialogDetail(oEvent);
             }, 50);
         },
+        /*
+        _showDialogDetail: function (oEvent) {
+            console.log("Se ejecuta showDialogDetail")
+            let oButton = oEvent.getSource();
+            let oData = oButton.getBindingContext("serviceModel").getObject();
+            let sPath = oButton.getBindingContext("serviceModel").getPath();
+            iIndex = parseInt(sPath.split("/").pop(), 10);
+            console.log(iIndex);
+            const oModel = this.getView().getModel("serviceModel");
+            console.log(oModel);
+            aJsonCreate = oModel.getProperty("/ScheduleLine/Items");
+            console.log(aJsonCreate);
+            var row = FragmentMap.find(function (fragment) {
+                return fragment.DialogID === "myDialog";
+            });
+            oFlagPos = true;
+            console.log(row.DialogRout);
+            console.log(row.DialogID);
 
+            this.openValueHelpDialog(row.DialogRout, oEvent, row.DialogID);
+        },
+        */
+        // Offline
+        /*
         _showDialogDetail: function (oEvent) {
             let oButton = oEvent.getSource();
             let oData = oButton.getBindingContext("serviceModel").getObject();
             let sPath = oButton.getBindingContext("serviceModel").getPath();
             iIndex = parseInt(sPath.split("/").pop(), 10);
+
             const oModel = this.getView().getModel("serviceModel");
-            aJsonCreate = oModel.getProperty("/ScheduleLine/Items");
+            // Siempre obtén el arreglo actual justo antes de abrir el fragmento
+            aJsonCreate = oModel.getProperty("/ScheduleLine"); // <-- Usa el objeto completo, no solo Items
+            console.log(aJsonCreate);
             var row = FragmentMap.find(function (fragment) {
                 return fragment.DialogID === "myDialog";
             });
             oFlagPos = true;
+
             this.openValueHelpDialog(row.DialogRout, oEvent, row.DialogID);
         },
-
+        */
+        
+        _showDialogDetail: function (oEvent) {
+            // Obtén el índice del item de la tabla seleccionado
+            let oButton = oEvent.getSource();
+            let sPath = oButton.getBindingContext("serviceModel").getPath();
+            iIndex = parseInt(sPath.split("/").pop(), 10);
+        
+            // Obtén SIEMPRE el objeto actual del modelo
+            const oModel = this.getView().getModel("serviceModel");
+            oJsonCreate = oModel.getProperty("/ScheduleLine"); // <-- Objeto completo, no solo Items
+        
+            // Busca el fragmento
+            var row = FragmentMap.find(function (fragment) {
+                return fragment.DialogID === "myDialog";
+            });
+        
+            // Flag para indicar que se va a mostrar posición
+            oFlagPos = true;
+        
+            // Abre el fragmento con los datos actuales
+            this.openValueHelpDialog(row.DialogRout, oEvent, row.DialogID);
+        },
+        
         onChangeRow: function (oEvent) {
             //this.onValidateQuantity();
             var sFragId = this.createId("myDialog");
