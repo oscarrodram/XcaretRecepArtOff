@@ -189,6 +189,37 @@ sap.ui.define([], function () {
         return deleteById(STORE_NAMES.images, id);
     }
 
+    // --- NUEVO: Funciones para soporte de firmas offline ---
+    // Guarda una firma en el store Signatures. Si no se pasa un "id", lo genera a partir de DOCID + ID + EMAIL
+    function saveSignature(signature) {
+        const id = signature.id || (signature.DOCID + "_" + signature.ID + "_" + signature.EMAIL);
+        return saveData(STORE_NAMES.signatures, { ...signature, id });
+    }
+
+    // Devuelve todas las firmas en el store Signatures
+    function getAllSignatures() {
+        return getAll(STORE_NAMES.signatures);
+    }
+
+    // Devuelve solo las firmas pendientes de sincronizar (pending: true)
+    function getPendingSignatures() {
+        return getAllSignatures().then(signs => signs.filter(sign => sign.pending));
+    }
+
+    // Marca la firma como sincronizada (pending: false)
+    function markSignatureAsSynced(id) {
+        return getById(STORE_NAMES.signatures, id).then(function (sign) {
+            if (!sign) return;
+            sign.pending = false;
+            return saveData(STORE_NAMES.signatures, sign);
+        });
+    }
+
+    // Elimina una firma por ID
+    function deleteSignature(id) {
+        return deleteById(STORE_NAMES.signatures, id);
+    }
+
     return {
         DB_NAME: DB_NAME,
         DB_VERSION: DB_VERSION,
@@ -212,6 +243,12 @@ sap.ui.define([], function () {
         getAllImages: getAllImages,
         getPendingImages: getPendingImages,
         markImageAsSynced: markImageAsSynced,
-        deleteImage: deleteImage
+        deleteImage: deleteImage,
+        // NUEVAS funciones para firmas offline:
+        saveSignature: saveSignature,
+        getAllSignatures: getAllSignatures,
+        getPendingSignatures: getPendingSignatures,
+        markSignatureAsSynced: markSignatureAsSynced,
+        deleteSignature: deleteSignature
     };
 });

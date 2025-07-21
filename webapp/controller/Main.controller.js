@@ -136,7 +136,7 @@ sap.ui.define([
                     sap.m.MessageToast.show("No hay imágenes pendientes por sincronizar.");
                     return;
                 }
-        
+
                 let successCount = 0, errorCount = 0;
                 for (let img of pendingImages) {
                     try {
@@ -148,7 +148,7 @@ sap.ui.define([
                             ia[i] = byteString.charCodeAt(i);
                         }
                         let blob = new Blob([ab], { type: img.mimeType });
-        
+
                         // 3. Asegúrate que el campo INDEX esté presente
                         let indexValue = img.index !== undefined ? img.index : img.INDEX;
                         if (indexValue === undefined) {
@@ -156,7 +156,7 @@ sap.ui.define([
                             errorCount++;
                             continue;
                         }
-        
+
                         // 4. Arma FormData igual que en onUploadPhotos (ahora INCLUYENDO INDEX)
                         let formData = new FormData();
                         formData.append("image", blob, img.IMAGE_NAME);
@@ -166,13 +166,13 @@ sap.ui.define([
                             INDEX: indexValue,
                             IMAGE_NAME: img.IMAGE_NAME
                         }]));
-        
+
                         // 5. Sube la imagen al backend
                         let response = await fetch(host + "/ImageMaterialReceptionItem", {
                             method: "POST",
                             body: formData
                         });
-        
+
                         if (response.ok) {
                             await indexedDBService.markImageAsSynced(img.id || img.IMAGE_NAME);
                             successCount++;
@@ -183,8 +183,93 @@ sap.ui.define([
                         errorCount++;
                     }
                 }
-        
+
                 sap.m.MessageToast.show(`Sincronización de imágenes finalizada. ${successCount} exitosas, ${errorCount} con error.`);
+            });
+        },
+
+        /**
+        * Sincroniza firmas pendientes guardadas en IndexedDB (store Signatures y PendingOps) cuando vuelves a estar online.
+        * Sube cada firma con pending: true al backend y/o elimina en backend si es tipo delete.
+        */
+        syncPendingSignatures: async function () {
+            sap.ui.require(["com/xcaret/recepcionarticulos/model/indexedDBService"], async function (indexedDBService) {
+                let pendingOps = await indexedDBService.getPendingOps();
+                // Filtra solo operaciones de firmas
+                let signatureOps = pendingOps.filter(op => op.type === "Signature");
+                if (!signatureOps || signatureOps.length === 0) {
+                    sap.m.MessageToast.show("No hay firmas pendientes por sincronizar.");
+                    return;
+                }
+
+                let successCount = 0, errorCount = 0;
+
+                for (let op of signatureOps) {
+                    try {
+                        if (op.opType === "create") {
+                            // 1. Convierte base64 a Blob
+                            let sign = op.data;
+                            let byteString = atob(sign.image);
+                            let ab = new ArrayBuffer(byteString.length);
+                            let ia = new Uint8Array(ab);
+                            for (let i = 0; i < byteString.length; i++) {
+                                ia[i] = byteString.charCodeAt(i);
+                            }
+                            let blob = new Blob([ab], { type: sign.mimeType || "image/jpeg" });
+
+                            // 2. Arma FormData igual que uploadSignature
+                            let formData = new FormData();
+                            formData.append("image", blob, "signature.jpeg");
+                            formData.append("metadata", JSON.stringify([{
+                                DOCID: sign.DOCID,
+                                ID: sign.ID,
+                                PROCESS: sign.PROCESS,
+                                SUBPROCESS: sign.SUBPROCESS
+                            }]));
+
+                            // 3. Sube la firma al backend
+                            let response = await fetch(host + "/ImageSignItem", {
+                                method: "POST",
+                                body: formData
+                            });
+
+                            if (response.ok) {
+                                // Marca como sincronizada y elimina de pendientes
+                                await indexedDBService.markSignatureAsSynced(sign.id);
+                                await indexedDBService.deletePendingOp(op.id);
+                                successCount++;
+                            } else {
+                                errorCount++;
+                            }
+                        } else if (op.opType === "delete") {
+                            // 1. Elimina la firma en backend
+                            let delItem = op.data;
+                            let res = await fetch(host + "/ImageSignItem", {
+                                method: "DELETE",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify([{
+                                    DOCID: delItem.DOCID,
+                                    ID: delItem.ID,
+                                    PROCESS: delItem.PROCESS,
+                                    SUBPROCESS: delItem.SUBPROCESS
+                                }])
+                            });
+                            if (res.ok) {
+                                await indexedDBService.deletePendingOp(op.id);
+                                // También podrías eliminarla localmente si no lo has hecho antes
+                                await indexedDBService.deleteSignature(delItem.DOCID + "_" + delItem.ID + "_" + sEmail);
+                                successCount++;
+                            } else {
+                                errorCount++;
+                            }
+                        }
+                    } catch (err) {
+                        errorCount++;
+                        console.error("Error al sincronizar firma pendiente:", err);
+                    }
+                }
+
+                sap.m.MessageToast.show(`Sincronización de firmas finalizada. ${successCount} exitosas, ${errorCount} con error.`);
             });
         },
 
