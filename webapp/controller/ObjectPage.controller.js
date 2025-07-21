@@ -3339,6 +3339,24 @@ sap.ui.define([
             });
         },
 
+        _sendPhotoFormData: function (formData, aNewImages) {
+            $.ajax({
+                url: host + "/ImageMaterialReceptionItem",
+                type: "POST",
+                data: formData,
+                async: false,
+                processData: false,
+                contentType: false,
+                success: function (response) {
+                    console.log("Fotos subidas correctamente");
+                    aNewImages.forEach(img => img.ind = 'e');
+                },
+                error: function (xhr, status, error) {
+                    console.error("Error al subir fotos:", status, error);
+                }
+            });
+        },
+
         onDeletePhotos: function () {
             var aDeleteData = this._aDeleteImageSource;
 
