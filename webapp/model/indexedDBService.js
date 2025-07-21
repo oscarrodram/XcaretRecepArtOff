@@ -155,12 +155,13 @@ sap.ui.define([], function () {
     // Guarda una imagen en el store Images. Si no se pasa un "id", lo genera a partir de MBLRN + LINE_ID + IMAGE_NAME
     function saveImage(img) {
         const id = img.id || (img.MBLRN + "_" + img.LINE_ID + "_" + img.IMAGE_NAME);
-        // Asegura que el campo index se guarde siempre
+        // El campo de índice puede venir como index o INDEX, asegúrate de que ambos existan y sean el mismo valor
+        const indexValue = (typeof img.index !== "undefined") ? img.index : img.INDEX;
         return saveData(STORE_NAMES.images, {
             ...img,
             id,
-            // Guarda INDEX como número o string, preferentemente como número
-            INDEX: (typeof img.INDEX !== "undefined") ? img.INDEX : img.index
+            index: indexValue,
+            INDEX: indexValue
         });
     }
 

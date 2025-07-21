@@ -136,7 +136,7 @@ sap.ui.define([
                     sap.m.MessageToast.show("No hay imágenes pendientes por sincronizar.");
                     return;
                 }
-
+        
                 let successCount = 0, errorCount = 0;
                 for (let img of pendingImages) {
                     try {
@@ -148,23 +148,31 @@ sap.ui.define([
                             ia[i] = byteString.charCodeAt(i);
                         }
                         let blob = new Blob([ab], { type: img.mimeType });
-
-                        // 3. Arma FormData igual que en onUploadPhotos (ahora INCLUYENDO INDEX)
+        
+                        // 3. Asegúrate que el campo INDEX esté presente
+                        let indexValue = img.index !== undefined ? img.index : img.INDEX;
+                        if (indexValue === undefined) {
+                            console.warn("Imagen pendiente sin INDEX, saltando:", img);
+                            errorCount++;
+                            continue;
+                        }
+        
+                        // 4. Arma FormData igual que en onUploadPhotos (ahora INCLUYENDO INDEX)
                         let formData = new FormData();
                         formData.append("image", blob, img.IMAGE_NAME);
                         formData.append("metadata", JSON.stringify([{
                             MBLRN: img.MBLRN,
                             LINE_ID: img.LINE_ID,
-                            INDEX: img.index, // <-- Asegúrate que 'index' se guarda al crear la imagen
+                            INDEX: indexValue,
                             IMAGE_NAME: img.IMAGE_NAME
                         }]));
-
-                        // 4. Sube la imagen al backend
+        
+                        // 5. Sube la imagen al backend
                         let response = await fetch(host + "/ImageMaterialReceptionItem", {
                             method: "POST",
                             body: formData
                         });
-
+        
                         if (response.ok) {
                             await indexedDBService.markImageAsSynced(img.id || img.IMAGE_NAME);
                             successCount++;
@@ -175,7 +183,7 @@ sap.ui.define([
                         errorCount++;
                     }
                 }
-
+        
                 sap.m.MessageToast.show(`Sincronización de imágenes finalizada. ${successCount} exitosas, ${errorCount} con error.`);
             });
         },

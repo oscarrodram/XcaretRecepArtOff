@@ -3340,6 +3340,8 @@ sap.ui.define([
         },
 
         _sendPhotoFormData: function (formData, aNewImages) {
+            console.log(formData)
+            console.log(aNewImages)
             $.ajax({
                 url: host + "/ImageMaterialReceptionItem",
                 type: "POST",
@@ -5156,7 +5158,8 @@ sap.ui.define([
                                             data: base64,
                                             mimeType: capturedFile.type,
                                             pending: true,
-                                            timestamp: Date.now()
+                                            timestamp: Date.now(),
+                                            index: index  // <-- Agrega el campo index aquí!
                                         });
                                     };
                                     reader.readAsDataURL(capturedFile);
@@ -6030,7 +6033,8 @@ sap.ui.define([
                                 data: base64.split(',')[1],
                                 mimeType: file.type,
                                 pending: true,
-                                timestamp: Date.now()
+                                timestamp: Date.now(),
+                                index: index  // <-- Agrega el campo index aquí!
                             });
                         }.bind(this));
                     }
