@@ -89,7 +89,7 @@ sap.ui.define([
             } else if (sHost.includes("qas-btp")) {
                 host = "https://node.cfapps.us10-001.hana.ondemand.com";
             } else if (sHost.includes("prd") || sHost.includes("prod")) {
-                host = "";
+                host = "https://node-api-prd.cfapps.us10-001.hana.ondemand.com";
             } else if (sHost.includes("-workspaces-")) {
                 host = "https://experiencias-xcaret-parques-s-a-p-i-de-c-v--xc-btpdev-15aca4ac6.cfapps.us10-001.hana.ondemand.com";
             }
@@ -412,7 +412,7 @@ sap.ui.define([
             }
             console.log(this.getView().getModel("serviceModel"))
         },
-
+        // Offline
         /**
         * Enriquecer los items del detalle recuperado de IndexDB con los campos esperados por la vista
         * @param {Array} itemsOriginal - arreglo de posiciones crudas de IndexedDB
@@ -565,6 +565,7 @@ sap.ui.define([
             }
         },
 
+        // Offline
         _loadRecepImagesOffline: async function (sObjMBLRN) {
             var aReturn = [];
             const indexedDBService = sap.ui.require("com/xcaret/recepcionarticulos/model/indexedDBService");
@@ -5997,6 +5998,7 @@ sap.ui.define([
             }
         },
         */
+        // Offline
         onDeleteSign: function (oEvent, oDialog) {
             var that = this;
             var oActivePage = oEvent.getSource().getParent().getContent()[0].getActivePage();

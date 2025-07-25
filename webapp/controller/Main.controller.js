@@ -28,7 +28,7 @@ sap.ui.define([
             } else if (sHost.includes("qas-btp")) {
                 host = "https://node.cfapps.us10-001.hana.ondemand.com";
             } else if (sHost.includes("prd") || sHost.includes("prod")) {
-                host = "";
+                host = "https://node-api-prd.cfapps.us10-001.hana.ondemand.com";
             } else if (sHost.includes("-workspaces-")) {
                 host = "https://experiencias-xcaret-parques-s-a-p-i-de-c-v--xc-btpdev-15aca4ac6.cfapps.us10-001.hana.ondemand.com";
             }
@@ -75,6 +75,7 @@ sap.ui.define([
             // indexedDBService.syncPendingOps(processFn);
             this.syncPendingOps();
             this.syncPendingImages();
+            this.syncPendingSignatures();
         },
 
         // Offline
@@ -809,6 +810,7 @@ sap.ui.define([
          * Precarga masiva de detalles de cada item ScheduleLine después de cargar la tabla principal
          * Guarda cada detalle en el Store "ScheduleLineDetail" con clave id = EBELN
          */
+        /*
         preloadScheduleLineDetails: async function (aScheduleLines, indexedDBService) {
             // Si el volumen es alto, puedes limitar el número de detalles a precargar
             let maxItemsToPreload = 50; // Cambia este número según tu límite
@@ -835,6 +837,7 @@ sap.ui.define([
                 await indexedDBService.saveBulk("ScheduleLineDetail", detailsToSave);
             }
         },
+        */
 
         /*
         _getFilterTabIndicator: function (sTab) {
